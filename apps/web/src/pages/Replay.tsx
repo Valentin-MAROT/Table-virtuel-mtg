@@ -21,7 +21,6 @@ import { Hand } from '../components/Hand.js';
 import { CardPreview } from '../components/CardPreview.js';
 import { LegalFooter } from '../components/LegalFooter.js';
 import { api } from '../lib/api.js';
-import { useGame } from '../store/game.js';
 import { currentSeq, useReplay } from '../store/replay.js';
 import { useT } from '../lib/i18n/index.js';
 
@@ -291,7 +290,6 @@ function ReplayBar({
   const seek = useReplay((s) => s.seek);
   const playing = useReplay((s) => s.playing);
   const setPlaying = useReplay((s) => s.setPlaying);
-  const roomCode = useGame((s) => s.room?.code ?? head?.roomCode ?? '');
 
   return (
     /* `pl-[19rem]` en grand écran, et ce n'est pas de l'esthétique : les
@@ -335,11 +333,23 @@ function ReplayBar({
         </select>
       </label>
 
-      {roomCode ? (
-        <Link className="underline" to={`/rooms/${roomCode}`}>
-          {t('replay.backToTable')}
-        </Link>
-      ) : null}
+      {/*
+        **Quitter, et non « retour à la table ».**
+
+        Un replay existe parce qu'une partie est finie : renvoyer vers la table
+        renvoyait donc, le plus souvent, vers une table close — c'est-à-dire
+        vers un cul-de-sac, avec un libellé qui promettait le contraire.
+
+        Et le lien ne dépend plus d'un `roomCode`. Il n'y en a pas quand le
+        replay est ouvert par un **jeton de partage** (`/replays/:handle`), si
+        bien que ce spectateur-là n'avait aucune sortie du tout : la barre de
+        transport ne lui offrait rien, et seul le bouton « précédent » du
+        navigateur le tirait de là. Une vue en plein écran doit toujours porter
+        sa propre porte.
+      */}
+      <Link className="underline" data-test="replay-leave" to="/tables">
+        {t('replay.leave')}
+      </Link>
     </div>
   );
 }
