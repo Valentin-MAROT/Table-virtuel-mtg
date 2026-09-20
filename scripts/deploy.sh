@@ -52,11 +52,27 @@ ssh Serveur '
   echo
   # La montée en WebSocket doit répondre 101 : tout le jeu en dépend.
   # --http1.1 est indispensable, une requête HTTP/2 ne porte pas de Upgrade.
-  curl -s -k -m 10 -o /dev/null -w "WebSocket : %{http_code}\n" --http1.1 \
+  #
+  # Le timeout est ici le cas NOMINAL, et c’est tout le piège : quand la
+  # montée réussit, le serveur bascule en WebSocket et garde la connexion
+  # ouverte. curl n’a plus de réponse à terminer, tient jusqu’à son -m,
+  # puis sort en 28. Le set -euo pipefail faisait alors échouer le script sur
+  # un déploiement réussi — et un garde-fou qui crie au loup à chaque passage
+  # n’en est plus un : le jour où le 101 ne viendrait pas, l’erreur aurait
+  # exactement la même allure que d’habitude, et personne ne la lirait.
+  #
+  # On lit donc le code, et on n’échoue que s’il n’est pas 101. Les apostrophes
+  # de ce bloc sont typographiques : le bloc est passé à ssh entre quotes simples.
+  code=$(curl -s -k -m 10 -o /dev/null -w "%{http_code}" --http1.1 \
     --resolve magic.valentin-marot.fr:443:127.0.0.1 \
     -H "Connection: Upgrade" -H "Upgrade: websocket" \
     -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-    https://magic.valentin-marot.fr/ws/rooms/ABCDEF
+    https://magic.valentin-marot.fr/ws/rooms/ABCDEF || true)
+  echo "WebSocket : ${code:-aucune réponse}"
+  if [ "$code" != "101" ]; then
+    echo "le proxy ne relaie pas l’Upgrade : pas de 101" >&2
+    exit 1
+  fi
 '
 
 echo "✓ Déployé"
