@@ -45,6 +45,7 @@ npm run dev:web    # client Vite sur :5173, proxy vers :3000
 | `npx playwright test` | Tests de bout en bout (voir `e2e/README.md`) |
 | `node scripts/verify-ui.mjs <dossier>` | Recette d'interface dans un vrai navigateur, contre la pile démarrée : glisser-déposer, menus, raccourcis, cohérence des curseurs entre deux clients. Les captures atterrissent dans le dossier passé en argument. |
 | `node scripts/smoke.mjs <dossier>` | Fumée rapide : créer une table, s'asseoir, jouer quelques actions. |
+| `node scripts/probe-reglages.mjs` | Le panneau de réglages tient-il dans une fenêtre basse ? Une sonde à part, et non une étape de la recette : la mesure redimensionne la fenêtre, ce qui recadre la caméra et fausse les étapes suivantes d'un monde partagé. |
 
 > **À lire avant de déployer — une ré-ingestion est obligatoire.** La colonne
 > `Card.keywords` est **neuve**, donc `null` sur toute base dont le catalogue a été ingéré

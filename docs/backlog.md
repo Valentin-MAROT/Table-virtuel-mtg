@@ -195,6 +195,68 @@ Le trou d'outillage qui a rendu tout cela possible est **fermé**, dans les deux
 
 ## Fait récemment
 
+- **Espacement et diagonale se règlent séparément, et le panneau tient enfin à
+  l'écran** (20 septembre 2026).
+
+  **Le menu de réglages débordait, sans recours.** Mesuré avant correction :
+  981 px de haut, fixes. À 800 px de fenêtre, le sommet du panneau tombait à
+  **−90** — le champ de playmat était coupé hors de l'écran — et le bouton
+  « Fermer » devenait inatteignable. Le voile *pouvait* défiler, mais
+  `items-center` l'en empêchait : le centrage flex rogne par le **haut** dès que
+  l'enfant dépasse, là où un défilement normal rogne par le bas. La hauteur est
+  donc bornée sur le **panneau**, qui défile à l'intérieur, plutôt que sur le
+  voile dont le centrage resterait à combattre. Mesuré après : le sommet reste à
+  32 px et le bas reste atteignable jusqu'à 500 px de fenêtre.
+
+  Ce qui est gardé n'est pas une hauteur mais **ce qui doit rester vrai quelle
+  que soit la hauteur** : le sommet visible, le bas atteignable. Ce panneau est
+  fait pour grandir — il vient encore de le faire.
+
+  **La garde est une sonde (`scripts/probe-reglages.mjs`) et non une étape de la
+  recette, et cela s'est appris à la dure.** La mesure exige de redimensionner la
+  fenêtre ; or `verify-ui.mjs` partage **un seul monde** entre ses
+  cent-et-quelques étapes, et redimensionner recadre la caméra. Deux étapes plus
+  loin, une étiquette tombait à 781 px du point cliqué — un échec qui accusait le
+  menu du fond, parfaitement sain. Un premier correctif, qui attendait que la
+  transformation du plan soit stable, n'a rien changé (l'écart était **exactement
+  le même**, donc déterministe) et a cassé une étape de plus. C'est la seule
+  autre étape de la recette qui redimensionne qui donnait la réponse : elle est
+  la **dernière** du fichier, et pour cette raison.
+
+  La sonde ouvre un contexte de navigateur par hauteur, ce qui la rend
+  indépendante de l'ordre et de tout ce qu'une mesure précédente aurait laissé
+  derrière elle. Elle vérifie aussi que les deux curseurs disent ce qu'ils
+  appliquent, forme par forme.
+
+  **Un seul curseur faisait trois métiers.** « Chevauchement » servait d'écart
+  horizontal aux rangées, vertical à la grille, et de décalage aux piles : serrer
+  les piles les unes contre les autres et voir moins de chaque carte d'une pile
+  sont pourtant deux souhaits distincts, que le même réglage rendait
+  indissociables. Il se scinde en **espacement** — désormais signé, du
+  chevauchement jusqu'à l'air entre les cartes, ce qui était impossible — et en
+  **diagonale**, en pixels, propre aux deux formes en piles et montrée pour elles
+  seules.
+
+  **La migration est testée au pixel.** Un `overlap: 0.25` enregistré voulait
+  dire « chevauchement de 25 % », donc un espacement **négatif** dans la nouvelle
+  convention — mais pas pour les piles, où `overlap` ne pilotait pas l'écart
+  entre piles : il valait 10 px fixes, soit +12 % de largeur de carte. Convertir
+  en −25 % aurait fait se chevaucher les piles de quelqu'un qui n'a rien touché.
+  La géométrie de l'ancien code a donc été relevée et figée dans un test
+  (`AVANT`) : la sortie migrée lui est identique au pixel près, pour les quatre
+  formes.
+
+  **Une régression rattrapée avant de sortir.** L'espacement étant un seul champ
+  pour les quatre formes et son défaut valant −25 %, un joueur choisissant
+  « Piles par type » sans rien régler aurait obtenu des piles écartées de −21 px,
+  c'est-à-dire empilées les unes sur les autres. Deux piles qui se recouvrent
+  sont illisibles — on ne voit plus où l'une finit et l'autre commence — et le
+  recouvrement réveille l'irrégularité d'ordre de peinture que `pileSlots`
+  documente. L'écart entre piles a donc un **plancher à zéro**, et le curseur
+  part de zéro quand la forme empile : la valeur montrée est celle qui
+  s'applique. C'est le seul endroit où l'espacement est bridé, et c'est écrit là
+  où il l'est.
+
 - **Quatre dispositions de terrains, et un lecteur de replay qui avance par
   action** (20 septembre 2026).
 
@@ -203,8 +265,8 @@ Le trou d'outillage qui a rendu tout cela possible est **fermé**, dans les deux
   choisir. S'y ajoutent la **grille** (colonnes serrées, chevauchement vertical :
   on ne voit que le haut de chaque carte), les **piles par type** (une pile par
   nom de terrain, cartes décalées en diagonale) et les **piles de taille fixe**.
-  Le tout reste une préférence de compte, avec son coin de départ et son taux de
-  chevauchement, appliquée par « Aligner les terrains ».
+  Le tout reste une préférence de compte, avec son coin de départ et ses réglages
+  d'écartement, appliquée par « Aligner les terrains ».
 
   Trois décisions y sont écrites avec leur prix. Le **nombre réglable change de
   sens** avec la forme — rangées, colonnes, cartes par pile — et reste borné à

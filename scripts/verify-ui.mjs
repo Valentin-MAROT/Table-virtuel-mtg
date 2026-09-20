@@ -1697,6 +1697,28 @@ async function findDoubleFaced() {
     if (plans.etiquette >= 40) {
       throw new Error(`l’étiquette (${plans.etiquette}) masquerait les curseurs des autres joueurs`);
     }
+
+    /*
+     * **On retire l'étiquette qu'on vient de poser.**
+     *
+     * Une étape plus loin en pose une par le menu du fond, puis lit « la
+     * dernière » après avoir attendu `labels.length > 0` — garde qui ne dit
+     * plus rien dès qu'une étiquette traîne. Elle lisait donc la nôtre, posée
+     * en 60,60, et annonçait « l'étiquette est à 781 px du point cliqué » :
+     * un échec qui accuse le menu du fond, parfaitement sain.
+     *
+     * Le plus troublant est qu'il ne tombait pas à tous les coups — la course
+     * se gagnait quand l'event de la nouvelle étiquette arrivait assez vite.
+     * Une étape qui laisse une trace ne casse pas la suivante, elle la rend
+     * **intermittente**, ce qui coûte bien plus cher à comprendre.
+     */
+    await page.evaluate(() => {
+      const s = window.__mtg.getState();
+      for (const l of s.labels) s.send({ type: 'REMOVE_LABEL', labelId: l.id });
+    });
+    await page.waitForFunction(() => window.__mtg.getState().labels.length === 0, null, {
+      timeout: 8000,
+    });
   });
 
   await step('la réserve de mana flottant compte, se replie, et se voit de la table', async () => {
@@ -3216,10 +3238,24 @@ async function findDoubleFaced() {
     );
     // La saisie se fait désormais dans le menu lui-même, et non dans une
     // modale native : deux clics et une frappe, sans quitter la table.
+    const avant = await page.evaluate(() => window.__mtg.getState().labels.length);
     await menu.getByText('Poser une étiquette ici…').click();
     await page.locator('[data-test="table-menu-input"]').fill('repère');
     await page.locator('[data-test="table-menu-input"]').press('Enter');
-    await page.waitForFunction(() => window.__mtg.getState().labels.length > 0, null, { timeout: 8000 });
+    /*
+     * On attend une étiquette **de plus**, et non « au moins une ».
+     *
+     * La garde d'avant supposait la table vierge de toute étiquette : elle
+     * passait sans rien attendre dès qu'il en traînait une, et la lecture de
+     * « la dernière » tombait alors sur celle d'avant. C'est une supposition
+     * qu'une recette de cent étapes ne peut pas tenir — et qui se manifeste en
+     * intermittence, pas en échec franc.
+     */
+    await page.waitForFunction(
+      (n) => window.__mtg.getState().labels.length > n,
+      avant,
+      { timeout: 8000 },
+    );
     const label = await page.evaluate(() => {
       const l = window.__mtg.getState().labels;
       return l[l.length - 1];
