@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useGame } from '../store/game.js';
 import { sortedHand } from '../lib/handSort.js';
+import { cardMeta } from '../lib/cards.js';
+import { isLandTypeLine, landSlots, loadLandLayout } from '../lib/landLayout.js';
 import { askConfirm, askNumber, askText, openDialog } from './Dialog.js';
+import { useT } from '../lib/i18n/index.js';
 
 /** Barre d'actions haut-droite, calquée sur la table de référence. */
 /** Jetons les plus fréquents, créables sans passer par la recherche. */
@@ -55,6 +58,7 @@ export function Toolbar({
   onOpenHelp: () => void;
   onOpenSettings: () => void;
 }): React.ReactElement {
+  const t = useT();
   const send = useGame((s) => s.send);
   const mySeat = useGame((s) => s.mySeat);
   /** Les sièges, pour choisir à qui l'on révèle sa main. */
@@ -238,6 +242,88 @@ export function Toolbar({
             >
               Trier la main
             </MenuItem>
+            <MenuItem
+              onClick={() => {
+                /*
+                 * Ranger ses terrains d'un coup, selon le réglage du joueur
+                 * (« Disposition des terrains », dans les réglages de siège).
+                 *
+                 * **L'ordre n'est pas touché ici, et c'est le choix qui compte
+                 * à cet endroit.** Trier les terrains par nom avant de les
+                 * placer serait le premier réflexe — on aime voir ses Plaines
+                 * ensemble — et ce serait un défaut invisible depuis ce
+                 * fichier : sur le champ de bataille, tous les permanents non
+                 * attachés partagent le même `zIndex` (30), si bien que le
+                 * recouvrement suit l'**ordre de peinture**, c'est-à-dire
+                 * l'ordre du tableau `battlefield`, lui-même issu de l'ordre de
+                 * la `Map` `cards`. Réordonner les positions sans pouvoir
+                 * réordonner la peinture donne un éventail qui se recouvre
+                 * tantôt vers la gauche, tantôt vers la droite.
+                 *
+                 * On parcourt donc les terrains dans l'ordre de `cards`, qui
+                 * *est* l'ordre de peinture, et l'on passe cet ordre-là à
+                 * `landSlots`. Le regroupement par type, lui, est une **forme**
+                 * de disposition et vit dans `lib/landLayout.ts`, qui groupe en
+                 * interne puis redistribue les positions dans l'ordre reçu —
+                 * et qui dit, à `pileSlots`, ce que ce regroupement coûte
+                 * exactement au recouvrement.
+                 *
+                 * Le nom de la carte est joint parce que c'est lui qui décide
+                 * des piles ; les trois autres formes l'ignorent. Une fiche
+                 * absente du cache ne peut pas arriver ici — le filtre
+                 * ci-dessous lit déjà sa ligne de type —, mais l'identifiant
+                 * Scryfall sert de repli plutôt que de faire tomber tous les
+                 * inconnus dans une même pile.
+                 *
+                 * Un `MOVE_CARD` par terrain, car `MOVE_CARDS` ne porte qu'un
+                 * seul couple `x`/`y` pour tout le lot. Aucun de ces
+                 * déplacements n'écrit au journal : ranger n'est pas jouer.
+                 *
+                 * Reste une limite : un terrain dont la fiche n'est pas encore
+                 * en cache n'est pas reconnu et n'est pas rangé. En pratique
+                 * elle ne se voit pas — un permanent déjà peint a sa fiche —,
+                 * et le geste se rejoue sans dommage.
+                 */
+                close();
+                void loadLandLayout().then((layout) => {
+                  const state = useGame.getState();
+                  const lands = [...state.cards.values()].filter(
+                    (c) =>
+                      c.zone.seat === mySeat &&
+                      c.zone.kind === 'BATTLEFIELD' &&
+                      // Un terrain attaché à autre chose est placé par la mise
+                      // en page des attachements : le déplacer ne ferait rien.
+                      c.attachedTo === undefined &&
+                      // Une carte face cachée ne dit pas ce qu'elle est ; on ne
+                      // la range pas en devinant que c'est un terrain.
+                      !c.faceDown &&
+                      isLandTypeLine(cardMeta(c.scryfallId)?.typeLine),
+                  );
+                  const slots = landSlots(
+                    // La branche « face cachée » est morte : le filtre
+                    // ci-dessus l'a écartée. Elle n'est là que parce que
+                    // `filter` ne restreint pas le type de ce qu'il rend.
+                    lands.map((c) => ({
+                      key: c.faceDown ? c.id : (cardMeta(c.scryfallId)?.name ?? c.scryfallId),
+                    })),
+                    layout,
+                  );
+                  lands.forEach((land, rank) => {
+                    const slot = slots[rank];
+                    if (!slot) return;
+                    send({
+                      type: 'MOVE_CARD',
+                      cardId: land.id,
+                      to: land.zone,
+                      x: slot.x,
+                      y: slot.y,
+                    });
+                  });
+                });
+              }}
+            >
+              Aligner les terrains
+            </MenuItem>
             <MenuItem onClick={() => { send({ type: 'SHUFFLE', zone: { seat: mySeat, kind: 'LIBRARY' } }); close(); }}>
               Mélanger la bibliothèque
             </MenuItem>
@@ -376,7 +462,7 @@ export function Toolbar({
             >
               Scoop (tout ranger et mélanger)
             </MenuItem>
-            <MenuItem onClick={() => { onOpenSettings(); close(); }}>Playmat et dos de carte…</MenuItem>
+            <MenuItem onClick={() => { onOpenSettings(); close(); }}>{t('toolbar.playmat')}…</MenuItem>
             <MenuItem onClick={() => { onOpenHelp(); close(); }}>Raccourcis clavier</MenuItem>
             <MenuItem
               danger
