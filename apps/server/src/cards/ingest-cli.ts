@@ -1,14 +1,20 @@
 /**
- * Ingestion manuelle : `npm run ingest -w @mtg/server -- --force`.
+ * Ingestion manuelle : `npm run ingest -- --force`, depuis la racine.
  *
- * **Le `-w @mtg/server` n'est pas décoratif.** Depuis la racine, `npm run
- * ingest -- --force` fait avaler le drapeau par npm lui-même — il l'annonce
- * d'ailleurs, « using --force, Recommended protections disabled » — et le
- * script reçoit une ligne de commande vide, donc ne force rien et répond
- * « Bulk déjà ingéré, rien à faire ». Le cas s'est produit en production : la
- * commande semblait passer, et la ré-ingestion n'avait pas lieu. Dans un
- * conteneur, `node apps/server/dist/cards/ingest-cli.js --force` évite la
- * question.
+ * **Le `--` qui termine l'alias racine n'est pas décoratif, et il est fragile
+ * au point de mériter cette note.** npm accole les arguments d'un `npm run x --
+ * …` à la fin de la commande du script. Sans ce `--` final, l'alias racine
+ * devenait `npm run ingest -w @mtg/server --force`, et npm **avalait le
+ * drapeau comme un des siens** — il l'annonçait même, « using --force,
+ * Recommended protections disabled ». Le script recevait alors une ligne de
+ * commande vide, ne forçait rien, et répondait « Bulk déjà ingéré, rien à
+ * faire » : le message le plus déroutant possible pour qui vient précisément
+ * de passer `--force`. Le cas s'est produit en production, et a coûté une
+ * recherche de panne là où il n'y en avait pas.
+ *
+ * `npm run ingest -w @mtg/server -- --force` contourne l'alias et marche
+ * aussi. Dans un conteneur, `node apps/server/dist/cards/ingest-cli.js --force`
+ * évite la question tout entière.
  *
  * `--repair-tokens` est la reprise d'une base déjà peuplée : elle relit les
  * lignes présentes pour corriger leur drapeau « jeton », sans retélécharger le

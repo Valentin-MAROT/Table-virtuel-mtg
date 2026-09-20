@@ -41,7 +41,7 @@ npm run dev:web    # client Vite sur :5173, proxy vers :3000
 | `npm test` | Tests unitaires (parseur, moteur, visibilité, resynchronisation) |
 | `npm run typecheck` | Vérification TypeScript de tout le dépôt |
 | `npm run build` | Build partagé + serveur + client |
-| `npm run ingest -w @mtg/server -- --force` | Force une réingestion Scryfall. **Écrire la commande exactement ainsi** : `npm run ingest -- --force` depuis la racine ne marche pas, npm avale le drapeau au lieu de le passer au script (voir `docs/backlog.md`). |
+| `npm run ingest -- --force` | Force une réingestion Scryfall. L'alias racine se termine par un `--`, sans quoi npm avalait le drapeau comme un des siens et le script ne forçait rien — en répondant « Bulk déjà ingéré, rien à faire » à qui venait précisément de passer `--force`. `npm run ingest -w @mtg/server -- --force` marche aussi. |
 | `npx playwright test` | Tests de bout en bout (voir `e2e/README.md`) |
 | `node scripts/verify-ui.mjs <dossier>` | Recette d'interface dans un vrai navigateur, contre la pile démarrée : glisser-déposer, menus, raccourcis, cohérence des curseurs entre deux clients. Les captures atterrissent dans le dossier passé en argument. |
 | `node scripts/smoke.mjs <dossier>` | Fumée rapide : créer une table, s'asseoir, jouer quelques actions. |
@@ -52,7 +52,7 @@ npm run dev:web    # client Vite sur :5173, proxy vers :3000
 > ré-ingestion forcée après déploiement, **aucune carte n'est détectée** comme portant
 > cascade ou découvrir : le raccourci ne remonte dans aucun menu, et le défaut ressemble à
 > une fonctionnalité qui n'aurait pas été livrée du tout. Il faut donc passer
-> `npm run ingest -w @mtg/server -- --force` sur la production une fois le conteneur
+> `npm run ingest -- --force` sur la production une fois le conteneur
 > reconstruit ; compter une quarantaine de secondes. Le chemin manuel, lui, reste ouvert
 > entre-temps — c'est précisément pourquoi « on ne sait pas » ne ferme rien (§1.1 de
 > `docs/protocol.md`).
@@ -240,7 +240,7 @@ implémentation :
 - **Progressive Web App installable** : manifeste web complet, icônes adaptatives, raccourcis et fonctionnement plein écran.
 - **Mise en cache respectueuse** : le service worker ne met en cache que la coquille applicative locale ; aucun asset sous copyright de Wizards of the Coast n'est hébergé ou stocké.
 - **Couverture de tests automatisés** :
-  - 490 tests unitaires et d'intégration validés (`Vitest`).
+  - 914 tests unitaires et d'intégration validés (`Vitest`), sur 67 fichiers.
   - Tests d'invariants et de non-fuite par fuzzing sur des centaines d'actions aléatoires.
   - Sondes de bout en bout (`Playwright` / scripts Node) validant l'expérience dans de vrais navigateurs.
 

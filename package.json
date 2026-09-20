@@ -18,7 +18,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "db:migrate": "npm run db:migrate -w @mtg/server",
-    "ingest": "npm run ingest -w @mtg/server",
+    "ingest": "npm run ingest -w @mtg/server --",
     "dev:web": "npm run dev -w @mtg/web"
   },
   "devDependencies": {
