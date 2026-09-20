@@ -1495,6 +1495,108 @@ async function findDoubleFaced() {
     }
   });
 
+  await step('les quatre formes de disposition donnent quatre rangements distincts', async () => {
+    /*
+     * Une seule forme avait d'abord été livrée — des rangées —, et la demande
+     * était de pouvoir **choisir**. Cette étape garde les deux choses qui
+     * comptent : que les quatre formes existent dans les réglages, et
+     * qu'elles rangent **différemment**. Une forme qui compile et qui produit
+     * la même chose que sa voisine est pire qu'une forme absente : elle promet
+     * un réglage qui ne règle rien.
+     *
+     * La géométrie fine, elle, est couverte par 41 tests unitaires : ici on
+     * vérifie le chemin complet, depuis le bouton jusqu'aux positions que le
+     * serveur retient.
+     */
+    await refillHand(8);
+    const posees = await page.evaluate(() => {
+      const s = window.__mtg.getState();
+      const main = [...s.cards.values()].filter((c) => c.zone.kind === 'HAND');
+      const ids = [];
+      for (const c of main.slice(0, 8)) {
+        s.send({
+          type: 'MOVE_CARD',
+          cardId: c.id,
+          to: { seat: s.mySeat, kind: 'BATTLEFIELD' },
+          x: 320 + ids.length * 17,
+          y: 130 + (ids.length % 4) * 29,
+        });
+        ids.push(c.id);
+      }
+      return ids;
+    });
+    if (posees.length === 0) throw new Error('aucune carte à poser sur le champ de bataille');
+    await page.waitForTimeout(1200);
+
+    /** Les positions du champ, signées pour être comparées d'une forme à l'autre. */
+    const empreinte = async () =>
+      page.evaluate(() => {
+        const s = window.__mtg.getState();
+        return [...s.cards.values()]
+          .filter((c) => c.zone.kind === 'BATTLEFIELD' && c.owner === s.mySeat)
+          .map((c) => `${c.id}@${c.x},${c.y}`)
+          .sort()
+          .join('|');
+      });
+
+    const vues = new Map();
+    for (const forme of ['rows', 'grid', 'piles-by-type', 'piles-fixed']) {
+      await page.getByRole('button', { name: '⚙' }).click();
+      await page.locator('[data-test="land-layout"]').waitFor({ timeout: 5000 });
+      const bouton = page.locator(`[data-test="land-shape-${forme}"]`);
+      if ((await bouton.count()) === 0) throw new Error(`la forme « ${forme} » n'est pas proposée`);
+      await bouton.click();
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+
+      await page.getByRole('button', { name: /Actions/ }).click();
+      await page.getByText('Aligner les terrains').first().click();
+      await page.waitForTimeout(1500);
+
+      // Aucune forme ne pousse un terrain hors du panneau (1076 × 660).
+      const dehors = await page.evaluate(() =>
+        [...window.__mtg.getState().cards.values()]
+          .filter((c) => c.zone.kind === 'BATTLEFIELD')
+          .filter((c) => c.x < 0 || c.y < 0 || c.x + 83 > 1076 || c.y + 115 > 660).length,
+      );
+      if (dehors > 0) throw new Error(`${forme} : ${dehors} terrain(s) hors du panneau`);
+
+      vues.set(forme, await empreinte());
+    }
+
+    const distinctes = new Set(vues.values());
+    console.log(`      quatre formes → ${distinctes.size} rangement(s) distinct(s)`);
+    if (distinctes.size < 3) {
+      const memes = [...vues].map(([f, v]) => `${f}:${v.length}`).join(' ');
+      throw new Error(`les formes ne rangent pas différemment (${memes})`);
+    }
+
+    await page.screenshot({ path: `${OUT}/ui-34-terrains-formes.png` });
+
+    // On rend les terrains empruntés — voir l'étape d'alignement ci-dessous.
+    await page.evaluate((ids) => {
+      const s = window.__mtg.getState();
+      const encore = ids.filter((id) => s.cards.get(id)?.zone.kind === 'BATTLEFIELD');
+      if (encore.length > 0) {
+        s.send({
+          type: 'MOVE_CARDS',
+          cardIds: encore,
+          to: { seat: s.mySeat, kind: 'LIBRARY' },
+          index: 'BOTTOM',
+        });
+      }
+    }, posees);
+    await page.waitForTimeout(900);
+
+    // Et l'on remet la forme par défaut, pour ne rien imposer à la suite.
+    await page.getByRole('button', { name: '⚙' }).click();
+    await page.locator('[data-test="land-shape-rows"]').click();
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+  });
+
   await step('la pile du cimetière montre la carte qui vient d’y tomber', async () => {
     /*
      * Elle montrait la **première** carte tombée, pendant toute la partie.
