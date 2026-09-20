@@ -325,10 +325,39 @@ describe('la vitrine publique montre les cartes du visiteur', () => {
     );
   });
 
-  it('laisse le journal de la scène tel qu’il est écrit à la main', () => {
-    // Ce n'est pas un vrai journal : ses phrases sont du décor. Y glisser un
-    // nom français au milieu d'une phrase anglaise ferait un faux pire.
-    expect(code).toContain('from library to battlefield');
+  it('écrit le journal de la scène comme le serveur l’écrit vraiment', () => {
+    /*
+     * Ce n'est pas un vrai journal : ses phrases sont du décor, codées à la
+     * main. Mais un décor qui montre une phrase que le produit ne fabrique
+     * jamais est une vitrine qui ment — et elle mentait deux fois : des
+     * tournures **anglaises** sous un en-tête « Journal » français, là où le
+     * serveur ne produit que du français.
+     *
+     * Les tournures reprises sont donc celles d'`engine.ts` et d'`engine-2.ts`,
+     * mot pour mot.
+     */
+    expect(code).toContain('a engagé');
+    expect(code).toContain('a déplacé');
+    expect(code).toContain('de bibliothèque vers champ de bataille');
+    expect(code).toContain('a créé un jeton');
+    expect(code).not.toContain('from library to battlefield');
+  });
+
+  it('garde les noms de cartes du journal en anglais, comme le serveur les cuit', () => {
+    /*
+     * La garde d'origine de ce bloc, et elle reste entière : **aucun nom
+     * traduit ne doit entrer dans ces phrases**. Le serveur cuit les noms en
+     * anglais dans le texte qu'il pousse (`docs/backlog.md`, point 1), si bien
+     * qu'une vignette dira « Passage fabuleux » pendant que le journal dira
+     * « Fabled Passage ». C'est **exact**, et c'est précisément ce qu'il faut
+     * montrer : le jour où le journal se localisera, ce test tombera, et il
+     * devra tomber.
+     */
+    const log = code.slice(code.indexOf('Journal'), code.indexOf('Panneau joueur'));
+    expect(log).toContain('Fabled Passage');
+    expect(log).toContain('Forest');
+    expect(log).toContain('Pest');
+    expect(log).not.toContain('localizedCardName');
   });
 });
 

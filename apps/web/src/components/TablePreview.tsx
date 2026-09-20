@@ -13,7 +13,9 @@
  * table est une vitrine publique : aucun pseudo réel n'y a sa place.
  *
  * Le moment montré est cohérent avec le journal affiché à côté : Fabled Passage
- * est tapé, une Forest vient d'arriver de la bibliothèque, un token Pest est né.
+ * est engagé, une Forest vient d'arriver de la bibliothèque, un jeton Pest est né.
+ * Le journal de décor recopie les tournures **réelles** du serveur, en français,
+ * noms de cartes anglais compris — c'est ce que le joueur lira.
  * Si l'index ne répond pas, la table se rend quand même, avec des dos de carte
  * que nous dessinons nous-mêmes.
  *
@@ -102,19 +104,30 @@ export function TablePreview(): React.ReactElement {
           <p className="mb-[4%] border-b border-edge pb-[3%] text-[0.82em] uppercase tracking-wider text-slate-500">
             Journal
           </p>
+          {/*
+            Ces trois lignes sont du décor, mais elles recopient **mot pour mot**
+            les phrases que le serveur fabrique (`engine.ts`, `engine-2.ts`) :
+            « a engagé », « a déplacé … de … vers … », « a créé un jeton … ».
+            Elles étaient en anglais sous un en-tête « Journal » français, seul
+            endroit du produit où la vitrine mentait sur ce qu'on allait voir.
+            Les **noms de cartes restent anglais**, et c'est exact : le serveur
+            les cuit en anglais dans ses phrases (voir `docs/backlog.md`, point
+            1). Traduire la tournure sans traduire les noms n'est pas un
+            demi-mensonge, c'est précisément ce que le joueur verra.
+          */}
           <p className="mb-[3%]">
-            <span className="font-semibold text-sky-400">Joueur 1</span> tapped{' '}
+            <span className="font-semibold text-sky-400">Joueur 1</span> a engagé{' '}
             <span className="text-amber-300">Fabled Passage</span>
           </p>
           <p className="mb-[3%]">
-            <span className="font-semibold text-sky-400">Joueur 1</span> moved{' '}
-            <span className="text-amber-300">Forest</span> from library to battlefield
+            <span className="font-semibold text-sky-400">Joueur 1</span> a déplacé{' '}
+            <span className="text-amber-300">Forest</span> de bibliothèque vers champ de bataille
           </p>
           {/* La dernière ligne vient d'arriver : c'est le seul mouvement de la
               page, et il sert la démonstration — la table travaille. */}
           <p className="log-arriving">
-            <span className="font-semibold text-emerald-400">Joueur 2</span> created a{' '}
-            <span className="text-amber-300">Pest</span> token
+            <span className="font-semibold text-emerald-400">Joueur 2</span> a créé un jeton{' '}
+            <span className="text-amber-300">Pest</span>
           </p>
         </div>
 
