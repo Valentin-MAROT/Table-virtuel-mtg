@@ -816,6 +816,15 @@ try {
     // Échap doit la refermer, sinon son voile avalerait toute la suite.
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
+    /*
+     * Le sélecteur d'impression est nommé, et non reconnu à son plan.
+     * Il vivait à `z-50` et s'est trouvé descendu à `z-40` pour passer sous
+     * l'aperçu agrandi : une garde qui aurait continué à ne chercher que
+     * `.z-50` serait restée verte en cessant de surveiller quoi que ce soit.
+     */
+    if (await page.locator('[data-test="printing-picker"]').count()) {
+      throw new Error('le sélecteur d’impression est resté ouvert après Échap');
+    }
     const veiled = await page.evaluate(() => {
       const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
       return Boolean(el?.closest('.fixed.inset-0.z-50'));
@@ -1260,6 +1269,65 @@ async function findDoubleFaced() {
     await page.screenshot({ path: `${OUT}/ui-15c-apercu-cimetiere.png` });
 
     await page.locator('[data-test="zone-panel-close"]').click();
+    await unhover();
+  });
+
+  await step('le sélecteur d’impression agrandit la vignette survolée', async () => {
+    await unhover();
+    const preview = page.locator('[data-test="card-preview"]');
+
+    /*
+     * Choisir une édition, c'est regarder une illustration : sans aperçu, il
+     * fallait cliquer pour voir grand — donc choisir pour voir ce qu'on
+     * choisissait. Trois choses devaient bouger ensemble pour que ce geste
+     * existe, et l'étape les exerce toutes les trois :
+     *
+     *   - le voile du sélecteur est descendu de `z-50` à `z-40`, sous
+     *     l'aperçu (`z-[45]`) au lieu d'être par-dessus ;
+     *   - la salle ferme le menu avant d'ouvrir le sélecteur, sans quoi
+     *     `hoverPreview` refuse de s'allumer tant qu'un menu est posé ;
+     *   - le sélecteur ne monte **aucune** seconde instance d'aperçu, ce que
+     *     la garde d'unicité ci-dessous vérifie explicitement.
+     */
+    const box = await myPermanent().boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await page.locator('[data-test="card-menu"]').waitFor({ timeout: 5000 });
+    await page.locator('[data-test="card-menu"]').getByText('Changer d’impression').click();
+
+    const picker = page.locator('[data-test="printing-picker"]');
+    await picker.waitFor({ timeout: 5000 });
+    // Le menu s'efface : c'est lui qui bloquait l'aperçu.
+    if (await page.locator('[data-test="card-menu"]').count()) {
+      throw new Error('le menu est resté ouvert derrière le sélecteur d’impression');
+    }
+
+    const options = page.locator('[data-test="printing-option"]');
+    await options.first().waitFor({ timeout: 10000 });
+    const cell = await options.first().boundingBox();
+    await page.mouse.move(cell.x + cell.width / 2, cell.y + cell.height / 2);
+    await preview.waitFor({ timeout: 5000 });
+
+    // Une impression, pas un objet de partie : on ne lui invente pas d'identité.
+    if ((await preview.getAttribute('data-preview-source')) !== 'printing') {
+      throw new Error('une vignette d’impression devrait être prévisualisée comme une impression');
+    }
+    // Un seul aperçu dans la page, toujours : deux se recouvriraient.
+    const count = await preview.count();
+    if (count !== 1) throw new Error(`${count} aperçus montés en même temps`);
+
+    const veiled = await page.evaluate(() => {
+      const el = document.querySelector('[data-test="card-preview"]');
+      const modal = document.querySelector('[data-test="printing-picker"]');
+      return Number(getComputedStyle(el).zIndex) <= Number(getComputedStyle(modal).zIndex);
+    });
+    if (veiled) throw new Error('l’aperçu passe sous le voile du sélecteur d’impression');
+    await page.screenshot({ path: `${OUT}/ui-31b-apercu-impression.png` });
+
+    // Et il s'éteint en quittant la modale, sans laisser d'aperçu fantôme.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+    if (await picker.count()) throw new Error('le sélecteur d’impression ne se ferme pas à Échap');
+    if (await preview.count()) throw new Error('l’aperçu survit à la fermeture du sélecteur');
     await unhover();
   });
 
@@ -2534,6 +2602,37 @@ async function findDoubleFaced() {
     await page.evaluate((list) => window.__mtg.getState().send({ type: 'TAP', cardIds: [list[0]] }), ids);
     await page.waitForTimeout(600);
 
+    /*
+     * **La cible du double-clic se choisit, elle ne se tire pas au sort.**
+     *
+     * Les permanents se recouvrent volontiers — le lasso en prend neuf et les
+     * places libres sont serrées —, si bien qu'un `ids[1]` arbitraire tombait
+     * une fois sur plusieurs sur une carte à moitié cachée sous sa voisine.
+     * Playwright refusait alors de cliquer, et il avait raison : le point visé
+     * appartient à une autre carte. L'étape échouait sans rien apprendre à
+     * personne, ce qui est la pire sorte d'échec — celle qu'on prend
+     * l'habitude de relancer.
+     *
+     * N'importe quelle carte **de la sélection** démontre la même chose ; on
+     * prend donc la première qui réponde vraiment en son centre. Et on la
+     * reprend avant le second double-clic : engager tout le groupe fait
+     * pivoter les cartes, donc bouger les recouvrements.
+     */
+    const cliquable = async () => {
+      const cible = await page.evaluate((list) => {
+        for (const id of list) {
+          const el = document.querySelector(`[data-card="${id}"]`);
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          const dessus = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          if (dessus?.closest('[data-card]') === el) return id;
+        }
+        return null;
+      }, ids);
+      if (!cible) throw new Error('aucune carte de la sélection ne répond en son centre');
+      return cible;
+    };
+
     await page.evaluate(() => {
       const original = window.__mtg.getState().send;
       window.__sent = [];
@@ -2547,7 +2646,7 @@ async function findDoubleFaced() {
     });
 
     // Double-clic sur une carte du groupe : tout doit s'engager.
-    await page.locator(`[data-card="${ids[1]}"]`).dblclick();
+    await page.locator(`[data-card="${await cliquable()}"]`).dblclick();
     await page.waitForFunction(
       (list) => list.every((id) => window.__mtg.getState().cards.get(id)?.tapped === true),
       ids,
@@ -2567,7 +2666,7 @@ async function findDoubleFaced() {
     }
 
     // Second double-clic : tout est engagé, donc tout se dégage.
-    await page.locator(`[data-card="${ids[1]}"]`).dblclick();
+    await page.locator(`[data-card="${await cliquable()}"]`).dblclick();
     await page.waitForFunction(
       (list) => list.every((id) => window.__mtg.getState().cards.get(id)?.tapped === false),
       ids,
