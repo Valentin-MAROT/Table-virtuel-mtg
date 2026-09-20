@@ -48,8 +48,11 @@ function overlapFor(count: number): number {
  */
 export function Hand({
   onCardDoubleClick,
+  readOnly = false,
 }: {
   onCardDoubleClick: (card: CardView) => void;
+  /** Rendue par le lecteur de replay : pas de menu, voir `Table`. */
+  readOnly?: boolean;
 }): React.ReactElement | null {
   const mySeat = useGame((s) => s.mySeat);
   const cards = useGame((s) => s.cards);
@@ -194,6 +197,9 @@ export function Hand({
               }}
               onDoubleClick={() => onCardDoubleClick(card)}
               onContextMenu={(event) => {
+                // En replay, le geste revient au navigateur plutôt que d'être
+                // avalé pour rien : même règle que la surface de la table.
+                if (readOnly) return;
                 event.preventDefault();
                 openMenu({ kind: 'CARD', card, x: event.clientX, y: event.clientY });
               }}

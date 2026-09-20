@@ -213,14 +213,14 @@ export function ReplayPage(): React.ReactElement {
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden">
-      <Table />
+      <Table readOnly />
       <CardPreview />
 
       {/* La main du point de vue choisi. C'est elle qui donne tout son sens à
           la bascule : en vue omnisciente on lit celle du premier siège, en vue
           de siège on lit exactement ce que ce joueur avait en main à ce pas. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-[7.5rem] z-30">
-        <Hand onCardDoubleClick={() => undefined} />
+        <Hand readOnly onCardDoubleClick={() => undefined} />
       </div>
 
       {/* Le journal, à gauche, comme à la table. C'est lui qui donne le sens

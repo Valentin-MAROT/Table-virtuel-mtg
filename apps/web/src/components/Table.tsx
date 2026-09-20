@@ -102,7 +102,19 @@ function handHeight(): number {
  * compteur continue donc de mesurer ce pour quoi il existe — les rendus dus à
  * l'état de la table.
  */
-export const Table = memo(function Table(): React.ReactElement {
+/**
+ * `readOnly` : la table est rendue par le lecteur de replay.
+ *
+ * Le replay monte **la vraie table** — c'est le choix de conception de
+ * `store/replay.ts`, qui évite un second réducteur destiné à diverger. Mais un
+ * spectateur n'agit pas : `send` n'a pas de socket sous lui et rend `null` en
+ * silence. Un menu contextuel y serait donc une liste d'entrées qui ne font
+ * rien, ce qui est pire que pas de menu du tout.
+ *
+ * Ce drapeau ne retire donc que le **menu**, et lui seul : le déplacement de
+ * caméra au bouton droit reste, il sert autant en replay qu'à la table.
+ */
+export const Table = memo(function Table({ readOnly = false }: { readOnly?: boolean } = {}): React.ReactElement {
   const seats = useGame((s) => s.seats);
   const cards = useGame((s) => s.cards);
   const counts = useGame((s) => s.zoneCounts);
@@ -449,6 +461,19 @@ export const Table = memo(function Table(): React.ReactElement {
     if ((event.target as HTMLElement).closest('button, a, input, select, textarea, [role="button"]')) {
       return;
     }
+    /*
+     * En replay, on **laisse passer** le geste au lieu de l'avaler.
+     *
+     * L'avaler sans rien mettre à la place était le pire des trois états
+     * possibles : le menu du navigateur ne s'ouvrait pas, le nôtre non plus, et
+     * le clic droit paraissait cassé. Rendu au navigateur, il retrouve un sens
+     * utile à un spectateur — ouvrir l'image d'une carte, la copier.
+     *
+     * Le cas du déplacement de caméra est traité juste après et garde son
+     * `preventDefault` : un panoramique ne doit pas finir sur un menu, ici pas
+     * plus qu'à la table.
+     */
+    if (readOnly && !suppressMenu.current) return;
     event.preventDefault();
     // Le déplacement de caméra qui vient de finir ne doit pas se terminer sur
     // un menu ouvert sous le curseur.
@@ -456,6 +481,7 @@ export const Table = memo(function Table(): React.ReactElement {
       suppressMenu.current = false;
       return;
     }
+    if (readOnly) return;
 
     const rect = surface.current?.getBoundingClientRect();
     if (!rect) return;
