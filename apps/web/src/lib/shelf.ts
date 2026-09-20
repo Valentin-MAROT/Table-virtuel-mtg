@@ -9,8 +9,17 @@
  * Persistance : `UserPrefs.extra` pour un compte, `localStorage` pour un
  * invité. Le mode invité reste entier — l'étagère marche sans compte, elle ne
  * suit simplement pas le joueur d'un navigateur à l'autre.
+ *
+ * **Le côté compte passe par `lib/accountExtra.ts` et non plus par sa propre
+ * plomberie.** Ce module tenait son instantané du compte, relisait
+ * `prefs.extra` dedans et le renvoyait fusionné — ce qui suffisait tant qu'il
+ * était seul à écrire là. La disposition des terrains (`lib/landLayout.ts`) y
+ * vit désormais aussi : deux instantanés séparés se seraient effacés l'un
+ * l'autre au premier enregistrement, `PATCH /api/me` remplaçant `extra` en
+ * entier. Le joueur aurait rangé son étagère, choisi une disposition, et
+ * retrouvé l'étagère vide au rechargement — sans que rien n'ait échoué.
  */
-import { api, type Me } from './api.js';
+import { hasAccount, readAccountExtra, writeAccountExtra } from './accountExtra.js';
 
 export interface ShelfToken {
   scryfallId: string;
@@ -18,10 +27,9 @@ export interface ShelfToken {
 }
 
 const STORAGE_KEY = 'mtg.tokenShelf';
+/** La clé sous laquelle l'étagère vit dans `UserPrefs.extra`. */
+const EXTRA_KEY = 'tokenShelf';
 const MAX_ITEMS = 40;
-
-/** Compte connu, ou `false` si l'on joue en invité. `null` : pas encore su. */
-let account: Me | null | false = null;
 
 function readLocal(): ShelfToken[] {
   try {
@@ -60,34 +68,19 @@ function sanitize(value: unknown): ShelfToken[] {
  * invité qui vient de se créer un compte.
  */
 export async function loadShelf(): Promise<ShelfToken[]> {
-  try {
-    const me = await api.get<Me>('/api/me');
-    account = me;
-    const stored = sanitize((me.prefs?.extra as { tokenShelf?: unknown } | undefined)?.tokenShelf);
-    if (stored.length > 0) return stored;
-    const local = readLocal();
-    if (local.length > 0) await saveShelf(local);
-    return local;
-  } catch {
-    account = false;
-    return readLocal();
-  }
+  const stored = sanitize(await readAccountExtra(EXTRA_KEY));
+  if (stored.length > 0) return stored;
+
+  const local = readLocal();
+  // `hasAccount()` ne répond juste qu'après le `readAccountExtra` ci-dessus,
+  // qui est ce qui va chercher le compte : l'ordre des deux lignes compte.
+  if (local.length > 0 && hasAccount()) await saveShelf(local);
+  return local;
 }
 
-/** Enregistre l'étagère, là où ce joueur-là la garde. */
+/** Enregistre l'étagère, là où ce joueur-là la garde. Ne lève jamais. */
 export async function saveShelf(items: ShelfToken[]): Promise<void> {
   const trimmed = items.slice(0, MAX_ITEMS);
   writeLocal(trimmed);
-  if (!account) return;
-
-  // `extra` est remplacé en entier par le PATCH : on relit et on fusionne, pour
-  // ne pas effacer les autres préférences qui y vivent.
-  const current = (account.prefs?.extra ?? {}) as Record<string, unknown>;
-  const extra = { ...current, tokenShelf: trimmed };
-  try {
-    await api.patch('/api/me', { extra });
-    account = { ...account, prefs: { ...(account.prefs ?? { cardBackUrl: null, uiScale: 1 }), extra } };
-  } catch {
-    // Le stockage local a déjà pris : on ne perd rien de visible.
-  }
+  await writeAccountExtra(EXTRA_KEY, trimmed);
 }
