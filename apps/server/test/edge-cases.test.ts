@@ -256,6 +256,45 @@ describe('consultation', () => {
     auditInvariants(room.state);
   });
 
+  /*
+   * La garde vit dans le moteur, et le test l'y attrape : `handleIntent` ne
+   * repasse pas par `intentSchema`, dont le `superRefine` refuse déjà ce
+   * doublon au bord du socket. C'est précisément ce qu'on veut vérifier — que
+   * l'invariant « un objet est dans une zone et une seule » ne dépend pas de la
+   * validation de frontière, et tienne encore le jour où une destination de
+   * plus arrivera sans passer par elle.
+   */
+  it('refuse une carte citée dans deux destinations, sans rien déplacer', async () => {
+    const { room, a } = twoSeatTable();
+    const before = getZone(room.state, { seat: 'seat_0', kind: 'LIBRARY' }).length;
+    await room.handleIntent(a, 'look', {
+      type: 'LOOK',
+      zone: { seat: 'seat_0', kind: 'LIBRARY' },
+      count: 2,
+      mode: 'SEARCH',
+    });
+    const look = [...room.state.pendingLooks.values()][0]!;
+    const twice = look.cardIds[0]!;
+
+    a.received.length = 0;
+    await room.handleIntent(a, 'res', {
+      type: 'RESOLVE_LOOK',
+      lookId: look.id,
+      top: [twice],
+      bottom: [],
+      toSideboard: [twice],
+      shuffleAfter: true,
+    });
+
+    expect(lastReject(a)).toMatchObject({ code: 'ERR_PAYLOAD' });
+    // Le refus a lieu avant la moindre écriture : la session reste ouverte, la
+    // bibliothèque est intacte, et la réserve n'a pas reçu d'identifiant mort.
+    expect(room.state.pendingLooks.size).toBe(1);
+    expect(getZone(room.state, { seat: 'seat_0', kind: 'LIBRARY' })).toHaveLength(before);
+    expect(getZone(room.state, { seat: 'seat_0', kind: 'SIDEBOARD' })).toHaveLength(0);
+    auditInvariants(room.state);
+  });
+
   it('gèle la bibliothèque : pioche, meule et mélange sont refusés', async () => {
     const { room, a } = twoSeatTable();
     await room.handleIntent(a, 'look', {

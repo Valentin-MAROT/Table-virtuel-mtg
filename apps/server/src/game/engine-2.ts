@@ -5,7 +5,7 @@
 import { ulid } from 'ulid';
 import type { Counter, Intent, LookSummary, ObjectId, PublicCardView, SeatId, ZoneRef } from '@mtg/shared';
 import { IntentError } from './errors.js';
-import { projectCard, toLookView, toPublicView } from './projection.js';
+import { toLookView, toPublicView } from './projection.js';
 import {
   canSeeIdentity,
   getZone,
@@ -371,9 +371,29 @@ export function applyIntentPart2(
         [intent.bottom, 'BOTTOM'],
       ];
 
+      /*
+       * Deux gardes, et non une seule. L'appartenance à la consultation ne dit
+       * rien de l'unicité, et c'est l'unicité qui tient l'invariant « un objet
+       * est dans une zone et une seule » : une carte citée vers la réserve
+       * **et** vers le dessus est déplacée en réserve puis réinsérée dans la
+       * liste de la bibliothèque, et le remélange qui suit une fouille lui
+       * donne un identifiant neuf — la réserve garde alors un identifiant qui
+       * ne désigne plus rien.
+       *
+       * Le `superRefine` d'`intentSchema` refuse déjà ce doublon à la
+       * frontière, donc aucun client ne peut l'émettre. Mais un invariant du
+       * moteur ne doit pas dépendre d'une validation de frontière : c'est
+       * exactement la garde qui manque le jour où l'on ajoute une huitième
+       * destination, comme `toSideboard` l'a déjà montré en arrivant sans elle.
+       */
+      const seen = new Set<ObjectId>();
       for (const [ids] of destinations) {
         for (const id of ids) {
           if (!locked.has(id)) throw new IntentError('ERR_UNKNOWN_OBJECT', 'Carte hors de la consultation.');
+          if (seen.has(id)) {
+            throw new IntentError('ERR_PAYLOAD', 'Cette carte est citée dans deux destinations.');
+          }
+          seen.add(id);
         }
       }
 
