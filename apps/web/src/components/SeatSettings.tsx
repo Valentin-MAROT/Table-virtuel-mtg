@@ -21,10 +21,12 @@ import { useT } from '../lib/i18n/index.js';
 import {
   BATTLEFIELD_BOUNDS,
   DEFAULT_LAND_LAYOUT,
-  LAND_OVERLAP_MAX,
+  LAND_DIAGONAL_RANGE,
   LAND_SIZE_RANGE,
   LAND_SLOT_H,
   LAND_SLOT_W,
+  LAND_SPACING_RANGE,
+  isPileShape,
   landSlots,
   loadLandLayout,
   saveLandLayout,
@@ -64,6 +66,20 @@ const SIZE_LABELS: Readonly<Record<LandShape, string | null>> = {
   'piles-by-type': null,
   'piles-fixed': 'Cartes par pile',
 };
+
+/**
+ * L'espacement, en pourcentage et **signe compris**.
+ *
+ * Le signe est l'information : le même « 25 % » vaut recouvrement d'un côté du
+ * zéro et air de l'autre, et un curseur qui passe de l'un à l'autre sans rien
+ * changer d'autre laisserait deviner de quel côté on vient de s'arrêter. Le mot
+ * qui suit coûte trois caractères et épargne l'essai-erreur.
+ */
+function formatSpacing(spacing: number): string {
+  const percent = Math.round(spacing * 100);
+  if (percent === 0) return '0 % · jointif';
+  return percent < 0 ? `−${-percent} % · chevauchement` : `+${percent} % · écart`;
+}
 
 /**
  * Les terrains figurés dans l'aperçu : vingt cartes, cinq noms.
@@ -158,9 +174,31 @@ export function SeatSettings({ onClose }: { onClose: () => void }): React.ReactE
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8" onClick={onClose}>
+    /*
+      **Ce panneau déborde, et il débordait sans recours.**
+
+      Mesuré avant correction : 981 px de haut, fixes. À 800 px de fenêtre son
+      sommet tombait à −90 — le champ de playmat était coupé hors de l'écran —
+      et le bouton « Fermer » devenait inatteignable. Le voile *pouvait*
+      défiler, mais `items-center` l'en empêchait : c'est le piège classique du
+      centrage flex, qui rogne par le **haut** dès que l'enfant dépasse, là où
+      un défilement normal rogne par le bas.
+
+      La hauteur est donc bornée sur le **panneau**, qui défile à l'intérieur —
+      et non sur le voile, dont le centrage resterait à combattre. Le sommet
+      reste ainsi visible quelle que soit la fenêtre, et la marge du voile se
+      resserre sur les petits écrans pour rendre les pixels qu'elle prenait.
+
+      C'est d'autant moins accessoire que ce panneau est fait pour grandir : il
+      a déjà accueilli la disposition des terrains, et il en accueillera
+      d'autres.
+    */
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-8"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-md rounded-lg border border-edge bg-panel p-5"
+        className="scrollbar-thin max-h-full w-full max-w-md overflow-y-auto rounded-lg border border-edge bg-panel p-5"
         data-test="seat-settings"
         onClick={(event) => event.stopPropagation()}
       >
@@ -361,19 +399,64 @@ export function SeatSettings({ onClose }: { onClose: () => void }): React.ReactE
             ))}
           </div>
 
+          {/*
+            **Le curseur part de zéro quand la forme empile.**
+
+            L'espacement est un seul champ pour les quatre formes, et il sait
+            descendre sous zéro — les cartes d'une rangée se chevauchent alors,
+            c'est tout son intérêt. Mais deux **piles** qui se recouvrent sont
+            illisibles : on ne voit plus où l'une finit et l'autre commence,
+            alors que le propre d'une pile est d'être un paquet qu'on compte du
+            regard. `pileGap` refuse donc le négatif.
+
+            Si le curseur gardait sa course entière ici, il montrerait −25 %
+            pendant que l'effet resterait à zéro : un réglage qui se contredit à
+            l'écran, et qu'on croit cassé. Sa borne basse suit donc ce que la
+            forme accepte réellement.
+          */}
           <label className="block text-xs uppercase tracking-wide text-slate-500">
-            Chevauchement · {Math.round(landLayout.overlap * 100)} %
+            Espacement · {formatSpacing(isPileShape(landLayout.shape) ? Math.max(0, landLayout.spacing) : landLayout.spacing)}
+            {/*
+              Le pas est au centième et non au vingtième, parce que l'intervalle
+              n'est plus rond : une préférence venue de l'ancien réglage vaut
+              +12 % pour les piles — les dix pixels qu'elles avaient toujours
+              eus —, et un curseur au vingtième s'arrêterait à +10 % pendant
+              que le libellé afficherait +12 %. Un réglage qui se contredit à
+              l'écran est pire qu'un réglage absent.
+            */}
             <input
               className="mt-1 w-full accent-sky-500"
-              data-test="land-overlap"
-              max={LAND_OVERLAP_MAX}
-              min={0}
-              onChange={(event) => changeLandLayout({ overlap: Number(event.target.value) })}
-              step={0.05}
+              data-test="land-spacing"
+              max={LAND_SPACING_RANGE.max}
+              min={isPileShape(landLayout.shape) ? 0 : LAND_SPACING_RANGE.min}
+              onChange={(event) => changeLandLayout({ spacing: Number(event.target.value) })}
+              step={0.01}
               type="range"
-              value={landLayout.overlap}
+              value={isPileShape(landLayout.shape) ? Math.max(0, landLayout.spacing) : landLayout.spacing}
             />
           </label>
+
+          {/*
+            La diagonale ne dit rien aux rangées ni à la grille : elle ne se
+            montre que pour les deux formes qui empilent, comme le nombre
+            disparaît pour « Piles par type ». Un curseur sans effet qu'on
+            laisse visible se règle, et ne produit rien.
+          */}
+          {isPileShape(landLayout.shape) && (
+            <label className="mt-3 block text-xs uppercase tracking-wide text-slate-500">
+              Diagonale · {landLayout.diagonal} px
+              <input
+                className="mt-1 w-full accent-sky-500"
+                data-test="land-diagonal"
+                max={LAND_DIAGONAL_RANGE.max}
+                min={LAND_DIAGONAL_RANGE.min}
+                onChange={(event) => changeLandLayout({ diagonal: Number(event.target.value) })}
+                step={1}
+                type="range"
+                value={landLayout.diagonal}
+              />
+            </label>
+          )}
         </div>
 
         <button
@@ -395,7 +478,7 @@ export function SeatSettings({ onClose }: { onClose: () => void }): React.ReactE
  * jour où la géométrie change, et c'est exactement le genre de mensonge qu'on
  * ne remarque pas. C'est aussi ce qui fait que les quatre formes s'y montrent
  * sans une ligne de dessin de plus. Le rapport du panneau est conservé, sans
- * quoi un chevauchement de 40 % n'aurait pas l'air du même sur la vignette et
+ * quoi un espacement de −40 % n'aurait pas l'air du même sur la vignette et
  * sur la table.
  *
  * Les rectangles sont rendus dans l'ordre des emplacements, c'est-à-dire dans
