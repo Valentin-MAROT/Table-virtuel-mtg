@@ -195,6 +195,110 @@ Le trou d'outillage qui a rendu tout cela possible est **fermé**, dans les deux
 
 ## Fait récemment
 
+- **Cinq demandes de table : mana flottant, terrains alignés, étiquettes, cimetière,
+  sortie de replay** (20 septembre 2026).
+
+  **La réserve de mana flottant** (`ManaPool.tsx`, en bas à droite) compte les six
+  réserves — WUBRG et incolore —, se replie, et son repli survit au rechargement.
+
+  Deux décisions la tiennent, et aucune n'est cosmétique :
+
+  - **Elle n'a pas d'intent à elle.** Elle voyage par `SET_PLAYER_COUNTER`, sous des
+    `kind` préfixés `mana:`, comme la taxe de commandant. Un intent neuf aurait coûté une
+    montée de `PROTOCOL_VERSION`, donc la déconnexion de toutes les tables ouvertes, pour
+    un compteur que le protocole sait déjà porter. Le prix de ce raccourci est payé dans
+    `engine-2.ts` : **le journal se tait pour ce préfixe, et pour lui seul**. Mesuré —
+    cinq clics écrivaient cinq lignes, puis cinq de plus en se vidant ; le test tombe à
+    9 lignes au lieu de 4 dès qu'on retire la garde. Un `mana:` non reconnu reste un
+    compteur ordinaire et s'écrit normalement : la garde porte sur la liste des six
+    symboles, jamais sur le seul préfixe.
+  - **Elle est partagée, pas locale.** On aurait pu la tenir dans le navigateur — elle
+    est éphémère et sert d'abord à son propriétaire. Mais une réserve de mana **est** de
+    l'état de jeu : c'est elle qui dit si un joueur peut répondre. Elle apparaît donc en
+    symboles sur le bandeau de chaque siège, et un rechargement ne la perd pas. Se taire
+    n'est pas cacher.
+
+  **Une sonde au navigateur a corrigé une décision prise de travers.** Le premier jet
+  faisait passer la réserve par le regroupement de 1,5 s de `counterBatch.ts`, comme la
+  vie. La sonde a montré qu'un retrait suivi d'un rechargement dans ce délai **était
+  perdu** — le nettoyage de React ne tourne pas sur un rechargement de page. Et le
+  regroupement n'achetait plus rien, puisque le journal est déjà muet. Chaque clic part
+  donc immédiatement.
+
+  **La disposition des terrains** (`lib/landLayout.ts`) est une **préférence de compte**
+  — nombre de rangées, coin de départ, taux de chevauchement — appliquée par « Aligner
+  les terrains », dans le menu Actions. La géométrie est une fonction pure, couverte par
+  21 tests : aucun terrain ne sort du panneau, le pas se resserre plutôt que de déborder,
+  et un sous-type ne se prend pas pour un type (« Creature — Island Fish » n'est pas un
+  terrain, bien qu'« Island » porte les quatre lettres de `land`).
+
+  Deux arbitrages y sont écrits noir sur blanc. **`rows` est un plafond, pas une
+  consigne** : deux terrains avec quatre rangées demandées feraient une colonne, soit
+  l'inverse du réglage. Et **les terrains ne sont pas triés par nom** : l'ordre de
+  peinture est le seul arbitre du recouvrement, si bien qu'un tri donnerait un éventail
+  qui se recouvre tantôt à gauche tantôt à droite. Le prix, assumé : les terrains restent
+  dans l'ordre où ils ont été posés.
+
+  **Trois corrections plus courtes, et chacune avait sa cause bien à elle :**
+
+  - **Les étiquettes passent au-dessus des cartes.** Elles valaient `z-index: 20` quand
+    un permanent en vaut 30, et le panneau de siège n'ouvre aucun contexte d'empilement :
+    les deux se comparaient directement, et la carte gagnait. Le commentaire en place
+    affirmait pourtant déjà le contraire. Elles passent à 35 — au-dessus des cartes, sous
+    les curseurs des autres joueurs (40), qui doivent rester lisibles.
+  - **La pile du cimetière montre la carte qui vient d'y tomber.** Le serveur insère en
+    tête et renumérote derrière lui : la plus récente porte `sortIndex` **0**. Le client
+    triait par `sortIndex` croissant et prenait le **dernier** élément — c'est-à-dire la
+    plus ancienne. La pile affichait la première carte tombée pendant toute la partie.
+  - **On quitte un replay au lieu d'y retourner.** Le lien disait « Retour à la table »
+    et menait vers une table le plus souvent close — un cul-de-sac sous un libellé qui
+    promettait l'inverse. Il dit « Quitter » et mène à la liste des tables. Il ne dépend
+    plus non plus d'un code de table : ouvert par un **jeton de partage**, le lecteur
+    n'offrait aucune sortie du tout.
+
+  **Deux pièges d'outillage, tous deux de notre fait :**
+
+  - Le réglage des terrains avait été rangé derrière un bouton libellé « Playmat et dos
+    de carte » — introuvable pour qui le cherche. Le titre dit maintenant son **périmètre**
+    et non son contenu (« Réglages du plateau »), et les trois endroits qui ouvrent cette
+    modale lisent la **même** clé de catalogue, qui existait déjà sans être employée
+    nulle part. Ce renommage a cassé une étape de recette qui cherchait la modale **par
+    son texte** : elle s'accroche désormais à un `data-test`. Un libellé est fait pour
+    changer, un marqueur ne l'est pas.
+  - Une étape neuve tirait six cartes sans les rendre, et la meule à deux sièges
+    s'arrêtait trente étapes plus loin sur « bibliothèque trop courte ». L'échec tombait
+    très loin de sa cause et désignait une fonctionnalité saine. Les étapes qui
+    consomment des cartes les **remettent en place** avant de sortir.
+
+  Une étape de recette, enfin, se serait tue sans rien vérifier : elle classait les
+  terrains sur `card.typeLine`, que **le protocole ne publie pas** — tout aurait été jugé
+  « non-terrain », et l'étape se serait sautée poliment. Elle interroge maintenant
+  `/api/cards/batch`, la même source que la fonctionnalité qu'elle garde.
+
+  **Deux retours d'usage sur la réserve de mana, et le premier était une faute de
+  conception.**
+
+  *Le retrait un à un était introuvable.* Il existait — le **nombre** sous chaque symbole
+  était le bouton de retrait —, mais rien ne l'annonçait, et un commentaire avait même été
+  écrit pour justifier ce choix. Une commande qu'il faut deviner n'existe pas. Chaque
+  couleur porte désormais un couple `−` / `+` explicite, repris tel quel du panneau joueur
+  où la vie, les dégâts de commandant et la taxe l'emploient déjà : un seul idiome pour un
+  seul geste, appris une fois. Le symbole reste cliquable et ajoute, parce que c'est la
+  grande cible du geste le plus fréquent — engager ses terrains l'un après l'autre.
+  L'étape de recette exerce le cas exact qui avait été rapporté : un noir, deux rouges,
+  on retire **un** rouge, et l'on vérifie que le noir et le vert n'ont pas bougé.
+
+  *La réserve devait se voir de toute la table.* Elle l'était déjà par le protocole, mais
+  mal placée : posée dans le bandeau d'identité du siège, noyée parmi les pastilles de
+  zone. C'était la traiter comme un compteur de poison, qu'on consulte une fois par
+  partie, alors qu'une réserve de mana se regarde chaque fois qu'on se demande si le
+  voisin peut répondre. Elle est maintenant une **pastille compacte posée sur le terrain**,
+  au coin bas-droit, au-dessus des cartes et sans capter le pointeur — et **seulement si
+  elle contient quelque chose** : six zéros permanents sous chaque siège seraient du bruit
+  pour une information qui n'existe que par intermittence. Le coin bas-droit n'est pas un
+  hasard : le bas-gauche est celui où la disposition des terrains range les siens par
+  défaut, et deux réglages qui se disputent le même coin finissent par se recouvrir.
+
 - **Les boutons Impeccable, et le trou d'outillage qui les avait laissés morts**
   (20 septembre 2026).
 

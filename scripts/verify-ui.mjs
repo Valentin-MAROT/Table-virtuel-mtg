@@ -724,9 +724,23 @@ try {
   // cliquait laissait le voile du menu *Actions* ouvert sur toute la suite de
   // la recette, et une vingtaine d'étapes échouaient pour cette seule raison.
 
-  await step('réglages de playmat et de dos de carte', async () => {
+  await step('réglages du plateau : playmat, dos de carte et disposition des terrains', async () => {
     await page.getByRole('button', { name: '⚙' }).click();
-    await page.getByText('Playmat et dos de carte').first().waitFor({ timeout: 5000 });
+    /*
+     * **La modale se trouve par son marqueur, plus par son titre.**
+     *
+     * Cette étape attendait le texte « Playmat et dos de carte ». Le jour où la
+     * modale a accueilli la disposition des terrains, son titre est devenu
+     * « Réglages du plateau » — et l'étape est tombée en annonçant un délai
+     * dépassé, c'est-à-dire en désignant le mauvais coupable. Un libellé est
+     * fait pour changer ; un `data-test` ne l'est pas.
+     */
+    await page.locator('[data-test="seat-settings"]').waitFor({ timeout: 5000 });
+    // La disposition des terrains vit derrière ce même bouton : si elle n'y est
+    // pas, le réglage est introuvable pour qui le cherche.
+    if ((await page.locator('[data-test="land-layout"]').count()) === 0) {
+      throw new Error('le réglage de disposition des terrains a disparu des réglages du plateau');
+    }
     await page.getByPlaceholder('https://…').first().fill('https://example.invalid/playmat.jpg');
     const before = await page.evaluate(() => window.__mtg.getState().seq);
     await page.getByRole('button', { name: 'Appliquer' }).first().click();
@@ -1329,6 +1343,384 @@ async function findDoubleFaced() {
     if (await picker.count()) throw new Error('le sélecteur d’impression ne se ferme pas à Échap');
     if (await preview.count()) throw new Error('l’aperçu survit à la fermeture du sélecteur');
     await unhover();
+  });
+
+  await step('« Aligner les terrains » range les terrains, et eux seuls', async () => {
+    /*
+     * Ce que l'étape garde, dans l'ordre d'importance :
+     *
+     * 1. **Les non-terrains ne bougent pas.** C'est le risque du geste : un
+     *    rangement qui déplacerait une créature engagée ou un permanent
+     *    attaché détruirait une information de jeu pour ranger un décor.
+     * 2. **Rien ne sort du panneau**, quel que soit le nombre de terrains.
+     * 3. **Le coin choisi est respecté**, puisque c'est tout le réglage.
+     */
+    await refillHand(6);
+
+    // On pose la main sur le terrain, en vrac : des places quelconques, pour
+    // que l'alignement ait quelque chose à corriger.
+    const posees = await page.evaluate(() => {
+      const s = window.__mtg.getState();
+      const main = [...s.cards.values()].filter((c) => c.zone.kind === 'HAND');
+      const ids = [];
+      for (const c of main.slice(0, 6)) {
+        s.send({
+          type: 'MOVE_CARD',
+          cardId: c.id,
+          to: { seat: s.mySeat, kind: 'BATTLEFIELD' },
+          x: 300 + ids.length * 19,
+          y: 120 + (ids.length % 3) * 37,
+        });
+        ids.push(c.id);
+      }
+      return ids;
+    });
+    if (posees.length === 0) throw new Error('aucune carte à poser sur le champ de bataille');
+    await page.waitForTimeout(1200);
+
+    /*
+     * Le champ, avec pour chaque carte : terrain ou non, et sa position.
+     *
+     * **La ligne de type n'est pas sur la vue de carte** — le protocole ne la
+     * publie pas, elle vit dans le catalogue, que le client va chercher par
+     * `/api/cards/batch`. L'étape interroge donc la même source que la
+     * fonctionnalité qu'elle vérifie. La deviner depuis le nom aurait marché
+     * pour le deck de cette recette, et se serait tue le jour où il change —
+     * en laissant croire que l'alignement est exercé alors qu'il ne le serait
+     * plus.
+     */
+    const champ = async () =>
+      page.evaluate(async () => {
+        const s = window.__mtg.getState();
+        const cartes = [...s.cards.values()].filter(
+          (c) => c.zone.kind === 'BATTLEFIELD' && c.owner === s.mySeat,
+        );
+        const ids = [...new Set(cartes.map((c) => c.scryfallId).filter(Boolean))];
+        const types = new Map();
+        if (ids.length > 0) {
+          const res = await fetch('/api/cards/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+          });
+          const { cards } = await res.json();
+          for (const fiche of cards ?? []) types.set(fiche.scryfallId, fiche.typeLine ?? '');
+        }
+        return cartes.map((c) => {
+          const avantTiret = (types.get(c.scryfallId) ?? '').split('—')[0] ?? '';
+          return { id: c.id, terrain: /\bland\b/i.test(avantTiret), x: c.x, y: c.y };
+        });
+      });
+
+    const avant = await champ();
+    const terrains = avant.filter((c) => c.terrain);
+    if (terrains.length < 2) {
+      console.log(`      (${terrains.length} terrain(s) sur le champ : alignement non exercé)`);
+      return;
+    }
+
+    await page.getByRole('button', { name: /Actions/ }).click();
+    await page.getByText('Aligner les terrains').first().click();
+    await page.waitForTimeout(1800);
+
+    const apres = await champ();
+    const par = new Map(apres.map((c) => [c.id, c]));
+
+    // 1. Les non-terrains sont restés exactement où ils étaient.
+    for (const carte of avant.filter((c) => !c.terrain)) {
+      const maintenant = par.get(carte.id);
+      if (!maintenant) continue;
+      if (maintenant.x !== carte.x || maintenant.y !== carte.y) {
+        throw new Error(
+          `un non-terrain a été déplacé : ${carte.x},${carte.y} → ${maintenant.x},${maintenant.y}`,
+        );
+      }
+    }
+
+    // 2. Aucun terrain hors du panneau (1076 × 660, carte de 83 × 115).
+    const rangés = apres.filter((c) => c.terrain);
+    for (const c of rangés) {
+      if (c.x < 0 || c.y < 0 || c.x + 83 > 1076 || c.y + 115 > 660) {
+        throw new Error(`un terrain sort du panneau : ${c.x},${c.y}`);
+      }
+    }
+
+    // 3. Le coin par défaut est en bas à gauche : les terrains y sont, et ils
+    //    partagent leur ligne — c'est ce qui distingue un rangement d'un tas.
+    const bas = Math.max(...rangés.map((c) => c.y));
+    const gauche = Math.min(...rangés.map((c) => c.x));
+    const surLaLigneDuBas = rangés.filter((c) => c.y === bas).length;
+    console.log(
+      `      ${rangés.length} terrain(s) rangés — coin ${gauche},${bas}, ${surLaLigneDuBas} sur la ligne du bas`,
+    );
+    if (bas < 400) throw new Error(`les terrains ne sont pas au bas du panneau (y max ${bas})`);
+    if (gauche > 40) throw new Error(`les terrains ne sont pas à gauche (x min ${gauche})`);
+    if (surLaLigneDuBas < 2) throw new Error('les terrains ne partagent aucune ligne');
+
+    await page.screenshot({ path: `${OUT}/ui-33-terrains-alignes.png` });
+
+    /*
+     * **On rend ce qu'on a emprunté — et rien d'autre.**
+     *
+     * Les étapes de cette recette partagent un seul monde. Six cartes tirées
+     * ici manquent trente étapes plus loin, où la meule à deux sièges s'arrête
+     * sur « bibliothèque trop courte » : l'échec tombe très loin de sa cause et
+     * désigne une fonctionnalité parfaitement saine.
+     *
+     * Le premier correctif a fait pire en visant trop large : il renvoyait en
+     * bibliothèque **tout** le champ de bataille, et non les seules cartes
+     * posées ici. Deux étapes plus loin cherchaient une carte sur le terrain et
+     * un cimetière garni, et ne trouvaient plus rien. On rend donc exactement
+     * les identifiants empruntés, et l'on vérifie que le champ retrouve son
+     * compte d'avant.
+     */
+    await page.evaluate((ids) => {
+      const s = window.__mtg.getState();
+      const encore = ids.filter((id) => s.cards.get(id)?.zone.kind === 'BATTLEFIELD');
+      if (encore.length > 0) {
+        s.send({
+          type: 'MOVE_CARDS',
+          cardIds: encore,
+          to: { seat: s.mySeat, kind: 'LIBRARY' },
+          index: 'BOTTOM',
+        });
+      }
+    }, posees);
+    await page.waitForTimeout(900);
+
+    const rendu = (await champ()).length;
+    const attendu = avant.length - posees.length;
+    if (rendu !== attendu) {
+      throw new Error(`le champ n'est pas rendu tel quel : ${rendu} carte(s) au lieu de ${attendu}`);
+    }
+  });
+
+  await step('la pile du cimetière montre la carte qui vient d’y tomber', async () => {
+    /*
+     * Elle montrait la **première** carte tombée, pendant toute la partie.
+     *
+     * Le serveur insère en tête (`insertIntoZone`, position `TOP` par défaut)
+     * et renumérote derrière lui : la plus récente porte donc `sortIndex` 0.
+     * Le client, lui, triait par `sortIndex` croissant et prenait le dernier
+     * élément — c'est-à-dire la plus ancienne. Deux envois successifs sont
+     * nécessaires pour l'attraper : avec une seule carte au cimetière, les
+     * deux lectures désignent la même.
+     */
+    /*
+     * Une vue de carte ne porte **pas** son nom — le protocole publie un
+     * `scryfallId`, le nom vit dans le catalogue. Le journal de l'étape
+     * affichait donc « null » tout en vérifiant, lui, les identifiants : il
+     * disait faux sans rien casser, ce qui est la façon la plus sûre de faire
+     * chercher un défaut là où il n'est pas. On abrège donc l'identifiant.
+     */
+    const court = (id) => (id ? String(id).slice(-6) : 'aucune');
+
+    const versCimetiere = async (index) =>
+      page.evaluate((i) => {
+        const s = window.__mtg.getState();
+        const main = [...s.cards.values()].filter((c) => c.zone.kind === 'HAND');
+        const carte = main[i];
+        if (!carte) return null;
+        s.send({ type: 'MOVE_CARD', cardId: carte.id, to: { seat: s.mySeat, kind: 'GRAVEYARD' } });
+        return carte.id;
+      }, index);
+
+    await refillHand(2);
+    const premiere = await versCimetiere(0);
+    if (!premiere) throw new Error('pas de carte en main pour alimenter le cimetière');
+    await page.waitForTimeout(500);
+    const seconde = await versCimetiere(0);
+    if (!seconde || seconde === premiere) throw new Error('la seconde carte n’est pas partie');
+    await page.waitForTimeout(700);
+
+    const montree = await page.locator('[data-zone$="|GRAVEYARD"] [data-card]').first().getAttribute('data-card');
+    console.log(
+      `      cimetière : …${court(premiere)} puis …${court(seconde)} → la pile montre …${court(montree)}`,
+    );
+    if (montree !== seconde) {
+      throw new Error('la pile ne montre pas la dernière carte envoyée au cimetière');
+    }
+
+    // Les deux cartes retournent en bibliothèque : voir l'étape d'alignement.
+    await page.evaluate((ids) => {
+      const s = window.__mtg.getState();
+      const encore = ids.filter((id) => s.cards.get(id)?.zone.kind === 'GRAVEYARD');
+      if (encore.length > 0) {
+        s.send({
+          type: 'MOVE_CARDS',
+          cardIds: encore,
+          to: { seat: s.mySeat, kind: 'LIBRARY' },
+          index: 'BOTTOM',
+        });
+      }
+    }, [premiere, seconde]);
+    await page.waitForTimeout(900);
+  });
+
+  await step('une étiquette se peint au-dessus des cartes', async () => {
+    /*
+     * Elle valait `z-index: 20` quand un permanent en vaut 30, et le panneau de
+     * siège n'ouvre aucun contexte d'empilement : les deux se comparaient
+     * directement, et la carte gagnait. Une étiquette posée pour annoter un
+     * permanent finissait dessous — invisible au moment précis où elle sert.
+     *
+     * La comparaison se fait sur le **style calculé**, pas sur une classe : ce
+     * qui compte est ce que le navigateur empile, pas ce que la source annonce.
+     */
+    await page.evaluate(
+      ([x, y]) => {
+        const s = window.__mtg.getState();
+        s.send({ type: 'ADD_LABEL', text: 'Au-dessus', x, y });
+      },
+      [60, 60],
+    );
+    const label = page.locator('[data-test="table-label"]').last();
+    await label.waitFor({ timeout: 5000 });
+
+    const plans = await page.evaluate(() => {
+      const etiquette = [...document.querySelectorAll('[data-test="table-label"]')].at(-1);
+      const carte = document.querySelector('[data-zone$="|BATTLEFIELD"][data-mine="1"] [data-card-id]');
+      if (!etiquette || !carte) return null;
+      return {
+        etiquette: Number(getComputedStyle(etiquette).zIndex),
+        carte: Number(getComputedStyle(carte).zIndex),
+      };
+    });
+    if (!plans) throw new Error('étiquette ou carte introuvable pour la comparaison');
+    console.log(`      plans : étiquette ${plans.etiquette}, carte ${plans.carte}`);
+    if (!(plans.etiquette > plans.carte)) {
+      throw new Error(`l’étiquette (${plans.etiquette}) ne passe pas au-dessus de la carte (${plans.carte})`);
+    }
+    // Et elle ne doit pas non plus passer devant les curseurs des autres (40).
+    if (plans.etiquette >= 40) {
+      throw new Error(`l’étiquette (${plans.etiquette}) masquerait les curseurs des autres joueurs`);
+    }
+  });
+
+  await step('la réserve de mana flottant compte, se replie, et se voit de la table', async () => {
+    const menu = page.locator('[data-test="mana-pool"]');
+    await menu.waitFor({ timeout: 5000 });
+
+    /** Ce que le serveur retient d'une réserve, vu par le client. */
+    const reserve = async (symbole) =>
+      page.evaluate((sym) => {
+        const s = window.__mtg.getState();
+        const moi = s.seats.find((x) => x.id === s.mySeat);
+        return moi?.playerCounters.find((c) => c.kind === `mana:${sym}`)?.value ?? 0;
+      }, symbole);
+
+    // Le symbole lui-même ajoute : c'est la grande cible, celle du geste
+    // répété quand on engage ses terrains l'un après l'autre.
+    await page.locator('[data-test="mana-add-B"]').click();
+    await page.locator('[data-test="mana-add-R"]').click();
+    // Et le petit `+` fait la même chose : les deux chemins doivent compter.
+    await page.locator('[data-test="mana-plus-R"]').click();
+    await page.locator('[data-test="mana-add-G"]').click();
+    await page.locator('[data-test="mana-plus-G"]').click();
+    await page.locator('[data-test="mana-plus-G"]').click();
+    await page.locator('[data-test="mana-plus-C"]').click();
+    await page.waitForFunction(
+      () => {
+        const s = window.__mtg.getState();
+        const moi = s.seats.find((x) => x.id === s.mySeat);
+        const lu = (k) => moi?.playerCounters.find((c) => c.kind === k)?.value ?? 0;
+        return lu('mana:B') === 1 && lu('mana:R') === 2 && lu('mana:G') === 3 && lu('mana:C') === 1;
+      },
+      null,
+      { timeout: 8000 },
+    );
+
+    /*
+     * **Retirer un seul mana d'une seule couleur**, sans toucher aux autres.
+     *
+     * C'est le geste que le premier jet rendait introuvable : le retrait
+     * existait, mais il était porté par le **nombre**, sans rien qui l'annonce.
+     * Un joueur avec un noir et deux rouges cherchait comment enlever un rouge
+     * et ne le trouvait pas. Le `−` est désormais un bouton à lui, et cette
+     * étape vérifie qu'il ne dépense qu'un mana, et de la bonne couleur.
+     */
+    await page.locator('[data-test="mana-minus-R"]').click();
+    await page.waitForFunction(
+      () => {
+        const s = window.__mtg.getState();
+        const moi = s.seats.find((x) => x.id === s.mySeat);
+        return (moi?.playerCounters.find((c) => c.kind === 'mana:R')?.value ?? 0) === 1;
+      },
+      null,
+      { timeout: 8000 },
+    );
+    const [b, r, g] = [await reserve('B'), await reserve('R'), await reserve('G')];
+    console.log(`      un rouge dépensé : noir ${b}, rouge ${r}, vert ${g}`);
+    if (b !== 1 || r !== 1 || g !== 3) {
+      throw new Error(`le retrait a débordé sur d'autres couleurs : B${b} R${r} G${g}`);
+    }
+
+    // À zéro, le `−` se désactive : on ne descend pas sous la suppression.
+    await page.locator('[data-test="mana-minus-B"]').click();
+    await page.waitForTimeout(600);
+    if (!(await page.locator('[data-test="mana-minus-B"]').isDisabled())) {
+      throw new Error('le retrait reste actif sur une réserve vide');
+    }
+
+    /*
+     * **Le journal ne dit rien de tout cela**, et c'est la condition qui rend
+     * le chemin choisi tenable : la réserve passe par `SET_PLAYER_COUNTER`,
+     * qui écrit d'ordinaire une ligne par changement. Quatre clics ici, zéro
+     * ligne — sans quoi une réserve alimentée par cinq terrains pousserait
+     * hors du journal ce qu'on y cherche vraiment.
+     */
+    const lignes = await page.evaluate(() =>
+      window.__mtg.getState().log.filter((e) => e.text.includes('mana:')).length,
+    );
+    console.log(`      neuf gestes de mana, ${lignes} ligne(s) de journal`);
+    if (lignes !== 0) throw new Error(`la réserve de mana écrit ${lignes} ligne(s) au journal`);
+
+    /*
+     * **La table voit la réserve, et elle ne la voit que si elle contient
+     * quelque chose.**
+     *
+     * C'est le point qui justifie tout le chemin choisi : la réserve est
+     * partagée précisément parce qu'elle dit si un joueur peut répondre. On
+     * vérifie donc la pastille du siège — posée sur le terrain, au coin
+     * bas-droit — plutôt que le seul état interne.
+     */
+    const pastille = page.locator('[data-zone$="|BATTLEFIELD"][data-mine="1"] [data-test="seat-mana"]');
+    await pastille.waitFor({ timeout: 5000 });
+    const lu = (await pastille.innerText()).replace(/\s+/g, ' ');
+    console.log(`      pastille du siège : « ${lu} »`);
+    for (const attendu of ['1', '3']) {
+      if (!lu.includes(attendu)) {
+        throw new Error(`la pastille du siège ne dit pas la réserve : « ${lu} »`);
+      }
+    }
+    // Elle ne montre que les couleurs qui flottent : le noir vient d'être vidé.
+    if ((await pastille.locator('[data-test="seat-mana-B"]').count()) !== 0) {
+      throw new Error('la pastille affiche une couleur à zéro');
+    }
+
+    // Replié, la pastille du menu continue de dire ce qui flotte : un compteur
+    // qu'on range pour gagner de la place ne doit pas obliger à le rouvrir pour
+    // savoir s'il contient quelque chose.
+    await page.locator('[data-test="mana-toggle"]').click();
+    await page.waitForTimeout(300);
+    if ((await page.locator('[data-test="mana-cells"]').count()) !== 0) {
+      throw new Error('le menu de mana ne se replie pas');
+    }
+    const replie = (await menu.innerText()).replace(/\s+/g, ' ');
+    if (!replie.includes('1') || !replie.includes('3')) {
+      throw new Error(`la pastille repliée ne dit pas ce qui flotte : « ${replie} »`);
+    }
+    await page.locator('[data-test="mana-toggle"]').click();
+    await page.locator('[data-test="mana-cells"]').waitFor({ timeout: 4000 });
+    await page.screenshot({ path: `${OUT}/ui-32-mana-flottant.png` });
+
+    // On vide, pour ne rien laisser derrière soi aux étapes suivantes — et la
+    // pastille du siège doit disparaître avec la dernière goutte.
+    await page.locator('[data-test="mana-clear"]').click();
+    await page.waitForTimeout(900);
+    if ((await page.locator('[data-test="seat-mana"]').count()) !== 0) {
+      throw new Error('la pastille du siège survit à une réserve vide');
+    }
   });
 
   // ------------------------------------------------------------- fluidité
