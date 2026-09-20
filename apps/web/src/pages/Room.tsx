@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { DeckSummary } from '@mtg/shared';
+import type { DeckSummary, PublicCardView } from '@mtg/shared';
 import { api, type Me } from '../lib/api.js';
 import { useGame } from '../store/game.js';
 import { NARROW_WIDTH, Table, highlightCards } from '../components/Table.js';
@@ -28,6 +28,7 @@ import { LeaveTable } from '../components/LeaveTable.js';
 import { TurnOrder } from '../components/TurnOrder.js';
 import { TableClosed } from '../components/TableClosed.js';
 import { PreGameDeck } from '../components/PreGameDeck.js';
+import { PrintingPicker } from '../components/PrintingPicker.js';
 import { hasSeatToken } from '../net/socket.js';
 import { AccountModal } from '../components/AccountModal.js';
 import { useT } from '../lib/i18n/index.js';
@@ -68,6 +69,15 @@ export function RoomPage(): React.ReactElement {
   const t = useT();
   const [countersOpen, setCountersOpen] = useState(false);
   const [tokenSearch, setTokenSearch] = useState(false);
+  /**
+   * La carte dont on choisit l'impression.
+   *
+   * Le sélecteur était rendu par `CardMenu`, à la place du menu : celui-ci
+   * restait donc monté derrière, et `menu` posé dans le store empêchait tout
+   * aperçu agrandi. Il est monté ici, et le menu est fermé avant — c'est ce
+   * qui rend les vignettes survolables.
+   */
+  const [printingFor, setPrintingFor] = useState<PublicCardView | null>(null);
   /** Où poser le prochain jeton créé par la recherche, en repère de panneau. */
   const tokenSpot = useRef<{ x: number; y: number } | null>(null);
   const [help, setHelp] = useState(false);
@@ -317,13 +327,25 @@ export function RoomPage(): React.ReactElement {
       </div>
 
       {preGame && room?.status !== 'PLAYING' && <PreGameDeck onClose={() => setPreGame(false)} />}
+      {printingFor && (
+        <PrintingPicker card={printingFor} onClose={() => setPrintingFor(null)} />
+      )}
       <CardPreview />
       <DragLayer />
       <LookModal />
       <PublicRevealModal />
       <ZonePanel onOpenChange={setZonePanel} />
       {menu?.kind === 'CARD' && (
-        <CardMenu card={menu.card} x={menu.x} y={menu.y} onClose={() => openMenu(null)} />
+        <CardMenu
+          card={menu.card}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => openMenu(null)}
+          onPickPrinting={(card) => {
+            openMenu(null);
+            setPrintingFor(card);
+          }}
+        />
       )}
       {menu?.kind === 'ZONE' && (
         <ZoneMenu zone={menu.zone} x={menu.x} y={menu.y} onClose={() => openMenu(null)} />

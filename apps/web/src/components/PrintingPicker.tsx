@@ -35,16 +35,31 @@ export function PrintingPicker({
   const language = useLanguage();
 
   /*
-   * Pas d'aperçu agrandi ici, et c'est délibéré.
+   * L'aperçu agrandi est celui de la salle, et il n'y en a pas d'autre.
    *
-   * Le geste y manque pourtant — choisir une illustration sans la voir en grand
-   * n'a guère de sens. Mais cette modale-ci vit **à la table**, sous un voile
-   * `z-50` qui ouvre son propre contexte d'empilement : l'aperçu monté par la
-   * salle (`z-[45]`) se peint dessous, et en monter un second à l'intérieur
-   * ferait exister deux `data-test="card-preview"` en même temps — ce que la
-   * recette d'interface compte. Le faire proprement demande de décider **où**
-   * la salle monte le sien, donc de toucher `Room.tsx`. À reprendre là-bas.
+   * Trois choses le rendent possible, et aucune n'est accessoire :
+   *
+   * - **Le voile est à `z-40`**, comme la recherche de jeton et la consultation,
+   *   et non plus à `z-50`. L'aperçu de la salle vit à `z-[45]` : c'est cette
+   *   hauteur-là, et elle seule, qui le fait passer au-dessus du voile au lieu
+   *   d'être peint gris dessous.
+   * - **Aucune seconde instance n'est montée ici.** `DeckEditor` en monte une,
+   *   mais il vit hors de la table où il n'y en a aucune ; en monter une ici
+   *   ferait exister deux `data-test="card-preview"` à la fois, ce que la
+   *   recette d'interface compte.
+   * - **Le menu est fermé avant l'ouverture** (`Room.tsx`). `hoverPreview`
+   *   refuse en effet de s'allumer tant qu'un menu est posé dans le store — et
+   *   ce sélecteur était justement rendu *par* le menu, qui restait monté
+   *   derrière lui.
+   *
+   * On passe donc l'identifiant du **catalogue** à `hoverPreview` : l'aperçu le
+   * traite comme une simple impression, sans lui inventer d'identité de jeu.
    */
+  const hoverPreview = useGame((s) => s.hoverPreview);
+
+  // Fermer la modale en laissant l'aperçu allumé montrerait une carte qu'on ne
+  // désigne plus nulle part. Même règle que la recherche de jetons.
+  useEffect(() => () => hoverPreview(null), [hoverPreview]);
 
   useEffect(() => {
     void api
@@ -54,7 +69,11 @@ export function PrintingPicker({
   }, [card.scryfallId]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-8"
+      data-test="printing-picker"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-3xl overflow-hidden rounded-lg border border-edge bg-panel"
         onClick={(event) => event.stopPropagation()}
@@ -83,7 +102,11 @@ export function PrintingPicker({
             <button
               key={printing.scryfallId}
               className={`group text-left ${printing.scryfallId === card.scryfallId ? 'ring-2 ring-sky-500' : ''}`}
+              data-test="printing-option"
+              onPointerEnter={() => hoverPreview(printing.scryfallId)}
+              onPointerLeave={() => hoverPreview(null)}
               onClick={() => {
+                hoverPreview(null);
                 send({
                   type: 'SET_PRINTING',
                   cardId: card.id,

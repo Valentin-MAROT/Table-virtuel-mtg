@@ -7,14 +7,13 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { CARD_TYPES } from '@mtg/shared';
-import type { CardView, CascadeCriterion, ZoneKind } from '@mtg/shared';
+import type { CardView, CascadeCriterion, PublicCardView, ZoneKind } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { api } from '../lib/api.js';
 import { cardMeta, cardName } from '../lib/cards.js';
 import { localizedCard, localizedCardName, useLocalizationTick } from '../lib/cardLocalization.js';
 import { useLanguage } from '../store/prefs.js';
 import { tokenName, useT, type CatalogKey } from '../lib/i18n/index.js';
-import { PrintingPicker } from './PrintingPicker.js';
 import { useMenuPlacement } from '../lib/menu.js';
 import { askNumber, openDialog } from './Dialog.js';
 import { shelveToken } from './TokenShelf.js';
@@ -286,6 +285,17 @@ export interface CardMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  /**
+   * Ouvre le sélecteur d'impression, **hors du menu**.
+   *
+   * Il vivait ici, rendu à la place du menu tant qu'il était ouvert. Le menu
+   * restait donc monté derrière lui, donc `menu` restait posé dans le store,
+   * donc la garde « pas d'aperçu quand un menu est ouvert » refusait
+   * l'agrandissement d'une vignette — et choisir une édition, c'est pourtant
+   * exactement regarder une illustration. La salle le monte désormais elle-même
+   * et ferme le menu d'abord.
+   */
+  onPickPrinting: (card: PublicCardView) => void;
 }
 
 interface Entry {
@@ -610,7 +620,7 @@ function CustomCounterPreview({
   );
 }
 
-export function CardMenu({ card, x, y, onClose }: CardMenuProps): React.ReactElement {
+export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps): React.ReactElement {
   // Le titre du menu est le seul nom de carte **affiché** par ce fichier ; tous
   // les autres servent de clé (étiquette de l'étagère, mots-clés de recherche du
   // dialogue) et restent donc ceux du catalogue.
@@ -625,7 +635,6 @@ export function CardMenu({ card, x, y, onClose }: CardMenuProps): React.ReactEle
   /** Les sièges, pour choisir à qui l'on montre une carte de sa main. */
   const seats = useGame((s) => s.seats);
   const beginAttach = useGame((s) => s.beginAttach);
-  const [picking, setPicking] = useState(false);
   const [confirming, setConfirming] = useState(false);
   /** La catégorie dont le tiroir est ouvert, et l'ancre qui le positionne. */
   const [openSub, setOpenSub] = useState<{ label: string; rect: DOMRect } | null>(null);
@@ -1947,7 +1956,7 @@ export function CardMenu({ card, x, y, onClose }: CardMenuProps): React.ReactEle
     entries.push({
       label: t('card.changePrinting'),
       separatorBefore: true,
-      run: () => setPicking(true),
+      run: () => onPickPrinting(card),
     });
   }
   if (card.kind === 'TOKEN' && card.faceDown === false) {
@@ -2014,10 +2023,6 @@ export function CardMenu({ card, x, y, onClose }: CardMenuProps): React.ReactEle
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
-
-  if (picking && card.faceDown === false) {
-    return <PrintingPicker card={card} onClose={onClose} />;
-  }
 
   return (
     <>
