@@ -3,6 +3,7 @@
  * Même commutateur que `engine.ts`, séparé pour garder des fichiers lisibles.
  */
 import { ulid } from 'ulid';
+import { isManaCounter } from '@mtg/shared';
 import type { Counter, Intent, LookSummary, ObjectId, PublicCardView, SeatId, ZoneRef } from '@mtg/shared';
 import { IntentError } from './errors.js';
 import { toLookView, toPublicView } from './projection.js';
@@ -1087,6 +1088,31 @@ export function applyIntentPart2(
       // qui permet de le retirer, et cela évite d'accumuler des lignes mortes.
       if (intent.value === 0) target.playerCounters.delete(intent.kind);
       else target.playerCounters.set(intent.kind, intent.value);
+
+      /*
+       * **La réserve de mana flottant ne s'écrit pas au journal.**
+       *
+       * Elle passe par ce même intent — c'est le choix expliqué dans
+       * `packages/shared/src/protocol/mana.ts` : un intent neuf coûterait une
+       * montée de `PROTOCOL_VERSION`, donc la déconnexion de toutes les tables
+       * ouvertes, pour un compteur que le protocole sait déjà porter.
+       *
+       * Mais son rythme n'est pas celui d'un compteur de poison. Alimenter une
+       * réserve avec cinq terrains, la dépenser, puis la vider à la fin de
+       * l'étape écrirait une douzaine de lignes par tour, pour une information
+       * qui **ne survit pas à l'étape en cours** — et qui pousserait hors du
+       * journal ce qu'on y cherche vraiment. La table la voit, en direct et en
+       * symboles, sur le panneau de chaque siège ; l'y raconter en plus serait
+       * la dire deux fois, mal la seconde.
+       *
+       * Rien d'autre ne se tait : l'event reste diffusé à **tous**, la réserve
+       * reste dans l'état, et elle est rejouée telle quelle à la reconnexion
+       * comme au snapshot. Ce qui disparaît est la ligne de récit, pas le fait.
+       */
+      const log = isManaCounter(intent.kind)
+        ? undefined
+        : { text: `${target.displayName} : ${intent.kind} = ${intent.value}`, cardIds: [] };
+
       return {
         emissions: [
           {
@@ -1097,7 +1123,7 @@ export function applyIntentPart2(
               kind: intent.kind,
               value: intent.value,
             }),
-            log: { text: `${target.displayName} : ${intent.kind} = ${intent.value}`, cardIds: [] },
+            ...(log ? { log } : {}),
           },
         ],
       };

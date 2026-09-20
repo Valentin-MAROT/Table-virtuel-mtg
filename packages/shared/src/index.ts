@@ -1,5 +1,6 @@
 export * from './protocol/core.js';
 export * from './protocol/cardTypes.js';
+export * from './protocol/mana.js';
 export * from './protocol/intents.js';
 export * from './protocol/events.js';
 export * from './protocol/messages.js';
