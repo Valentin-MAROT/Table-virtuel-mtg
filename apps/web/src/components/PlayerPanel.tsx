@@ -7,6 +7,13 @@ import {
   queueLifeChange,
   subscribeLifeBatch,
 } from '../lib/lifeBatch.js';
+import {
+  flushAllCounters,
+  pendingCounterValue,
+  queueCounterValue,
+  subscribeCounterBatch,
+} from '../lib/counterBatch.js';
+import { askNumber } from './Dialog.js';
 
 /**
  * Panneau de droite : points de vie, dégâts de commandant en matrice, et les
@@ -25,11 +32,16 @@ export function PlayerPanel(): React.ReactElement | null {
   const [, setTick] = useState(0);
 
   useEffect(() => subscribeLifeBatch(() => setTick((t) => t + 1)), []);
+  useEffect(() => subscribeCounterBatch(() => setTick((t) => t + 1)), []);
 
   // Quitter la table pendant le délai ne doit pas perdre le décompte.
   useEffect(() => {
     return () => {
-      if (mySeat) flushLife(mySeat, useGame.getState().send);
+      const out = useGame.getState().send;
+      if (mySeat) flushLife(mySeat, out);
+      // Les dégâts et la taxe suivent la même règle : quitter la table pendant
+      // le délai ne doit pas perdre ce que le joueur vient de compter.
+      flushAllCounters(out);
     };
   }, [mySeat]);
 
@@ -67,14 +79,25 @@ export function PlayerPanel(): React.ReactElement | null {
    * `SET_PLAYER_COUNTER` avec un `kind` préfixé : le serveur y reconnaît une
    * taxe et non un compteur de joueur ordinaire.
    */
+  const taxKey = (objectId: string): string => `tax:${objectId}`;
+
   const setTax = (objectId: string, casts: number): void => {
-    send({
-      type: 'SET_PLAYER_COUNTER',
-      seat: me.id,
-      kind: `commander_tax:${objectId}`,
-      value: Math.max(0, casts),
-    });
+    queueCounterValue(
+      taxKey(objectId),
+      Math.max(0, casts),
+      (value) => ({
+        type: 'SET_PLAYER_COUNTER',
+        seat: me.id,
+        kind: `commander_tax:${objectId}`,
+        value,
+      }),
+      send,
+    );
   };
+
+  /** La taxe telle qu'elle s'affiche : la prédiction locale d'abord. */
+  const shownTax = (objectId: string, casts: number): number =>
+    pendingCounterValue(taxKey(objectId)) ?? casts;
 
   const zone = (kind: string): number => counts.get(zoneKey({ seat: me.id, kind: kind as never })) ?? 0;
 
@@ -110,16 +133,26 @@ export function PlayerPanel(): React.ReactElement | null {
     }));
   };
 
-  /** Écriture réservée au receveur : `to` vaut toujours mon propre siège. */
+  const damageKey = (from: string, commanderId: string): string => `dmg:${from}:${commanderId}`;
+
+  /**
+   * Écriture réservée au receveur : `to` vaut toujours mon propre siège.
+   *
+   * Regroupée comme la vie : encaisser douze dégâts d'un commandant se fait en
+   * douze clics, et douze intents écrivaient douze lignes de journal.
+   */
   const setDamage = (from: string, commanderId: string, value: number): void => {
-    send({
-      type: 'SET_COMMANDER_DAMAGE',
-      from,
-      to: me.id,
-      commanderId,
-      value: Math.max(0, value),
-    });
+    queueCounterValue(
+      damageKey(from, commanderId),
+      Math.max(0, value),
+      (v) => ({ type: 'SET_COMMANDER_DAMAGE', from, to: me.id, commanderId, value: v }),
+      send,
+    );
   };
+
+  /** Les dégâts tels qu'ils s'affichent : la prédiction locale d'abord. */
+  const shownDamage = (from: string, commanderId: string, value: number): number =>
+    pendingCounterValue(damageKey(from, commanderId)) ?? value;
 
   return (
     <div className="pointer-events-auto w-60 rounded-xl border border-slate-700 bg-slate-900/90 p-3.5 text-sm shadow-xl backdrop-blur-md">
@@ -133,7 +166,32 @@ export function PlayerPanel(): React.ReactElement | null {
           >
             −
           </button>
-          <span className="relative min-w-10 text-center font-mono text-2xl font-black text-white tracking-tight" data-test="life-total">
+          {/*
+            Le total se saisit aussi. Il part en **écart** et non en valeur —
+            c'est `ADJUST_LIFE` qui existe, et le journal dit « passe à 28
+            (−12) », ce qui est justement l'information utile à la table. Il
+            passe par le même cumul que les clics, donc un total tapé pendant
+            qu'un décompte court le remplace au lieu de s'y ajouter.
+          */}
+          <button
+            className="relative min-w-10 text-center font-mono text-2xl font-black text-white tracking-tight"
+            data-test="life-total"
+            onClick={() => {
+              void askNumber({
+                title: 'Points de vie',
+                label: 'Nouveau total',
+                initial: shownLife,
+                min: 0,
+                quick: [20, 30, 40],
+              }).then((n) => {
+                if (n !== null && n !== shownLife) {
+                  queueLifeChange(me.id, n - shownLife, send);
+                }
+              });
+            }}
+            title="Saisir le total"
+            type="button"
+          >
             {shownLife}
             {pendingDelta !== 0 && (
               /* Le cumul n'est pas encore parti : on le montre pour que le
@@ -147,7 +205,7 @@ export function PlayerPanel(): React.ReactElement | null {
                 {pendingDelta > 0 ? `+${pendingDelta}` : pendingDelta}
               </span>
             )}
-          </span>
+          </button>
           <button
             className="h-7 w-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-black text-white text-base shadow-sm transition-all active:scale-90 flex items-center justify-center"
             data-test="life-plus"
@@ -200,7 +258,11 @@ export function PlayerPanel(): React.ReactElement | null {
                     {from.displayName}
                   </p>
                   {commanders.map(({ objectId, name }) => {
-                    const value = me.commanderDamage[from.id]?.[objectId] ?? 0;
+                    const value = shownDamage(
+                      from.id,
+                      objectId,
+                      me.commanderDamage[from.id]?.[objectId] ?? 0,
+                    );
                     return (
                       <div key={objectId} className="flex items-center justify-between gap-1">
                         <span className="min-w-0 flex-1 truncate text-[11px] text-slate-400" title={name}>
@@ -215,9 +277,27 @@ export function PlayerPanel(): React.ReactElement | null {
                           >
                             −
                           </button>
-                          <span className={`w-6 text-center text-xs ${lethal(value)}`} data-test="cmd-dmg-value">
+                          {/* Le nombre se saisit : vingt et un dégâts d'un coup
+                              n'est pas rare, et vingt et un clics sont absurdes. */}
+                          <button
+                            className={`w-6 text-center text-xs ${lethal(value)}`}
+                            data-test="cmd-dmg-value"
+                            onClick={() => {
+                              void askNumber({
+                                title: `Dégâts de ${name}`,
+                                label: 'Total encaissé',
+                                initial: value,
+                                min: 0,
+                                quick: [0, 7, 14, 21],
+                              }).then((n) => {
+                                if (n !== null) setDamage(from.id, objectId, n);
+                              });
+                            }}
+                            title="Saisir le total"
+                            type="button"
+                          >
                             {value}
-                          </span>
+                          </button>
                           <button
                             className="h-5 w-5 rounded bg-slate-800 text-xs hover:bg-slate-700"
                             data-test="cmd-dmg-plus"
@@ -298,7 +378,9 @@ export function PlayerPanel(): React.ReactElement | null {
       {commanders.length > 0 && (
         <div className="mt-2 border-t border-edge pt-2 text-xs">
           <p className="mb-1 text-slate-500">Taxe de commandant</p>
-          {commanders.map(({ objectId, casts }) => (
+          {commanders.map(({ objectId, casts: stored }) => {
+            const casts = shownTax(objectId, stored);
+            return (
             <div key={objectId} className="mb-1 flex items-center justify-between gap-2">
               {/* La taxe est indexée par identifiant d'objet : c'est la carte
                   qu'il faut retrouver avant d'en demander le nom. */}
@@ -316,10 +398,27 @@ export function PlayerPanel(): React.ReactElement | null {
                   −
                 </button>
                 {/* Ce que le joueur lit à la table, c'est le surcoût, pas le
-                    nombre de lancements : on montre les deux. */}
-                <span className="w-10 text-center" data-test="tax-value">
+                    nombre de lancements : on montre les deux. La saisie porte
+                    sur les **lancements**, qui sont ce que le joueur compte. */}
+                <button
+                  className="w-10 text-center"
+                  data-test="tax-value"
+                  onClick={() => {
+                    void askNumber({
+                      title: `Taxe de ${cardName(commanderScryfallId(objectId))}`,
+                      label: 'Lancements depuis la zone de commandement',
+                      initial: casts,
+                      min: 0,
+                      quick: [0, 1, 2, 3],
+                    }).then((n) => {
+                      if (n !== null) setTax(objectId, n);
+                    });
+                  }}
+                  title="Saisir le nombre de lancements"
+                  type="button"
+                >
                   +{casts * 2}
-                </span>
+                </button>
                 <button
                   className="h-5 w-5 rounded bg-life-plus font-bold text-white hover:brightness-110"
                   data-test="tax-plus"
@@ -330,7 +429,8 @@ export function PlayerPanel(): React.ReactElement | null {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
