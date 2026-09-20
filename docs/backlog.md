@@ -195,6 +195,72 @@ Le trou d'outillage qui a rendu tout cela possible est **fermé**, dans les deux
 
 ## Fait récemment
 
+- **Quatre dispositions de terrains, et un lecteur de replay qui avance par
+  action** (20 septembre 2026).
+
+  **Les terrains se rangent selon quatre formes au choix.** La première version
+  n'en savait faire qu'une — des rangées —, et la demande était de pouvoir
+  choisir. S'y ajoutent la **grille** (colonnes serrées, chevauchement vertical :
+  on ne voit que le haut de chaque carte), les **piles par type** (une pile par
+  nom de terrain, cartes décalées en diagonale) et les **piles de taille fixe**.
+  Le tout reste une préférence de compte, avec son coin de départ et son taux de
+  chevauchement, appliquée par « Aligner les terrains ».
+
+  Trois décisions y sont écrites avec leur prix. Le **nombre réglable change de
+  sens** avec la forme — rangées, colonnes, cartes par pile — et reste borné à
+  l'intervalle de la forme courante : régler huit colonnes puis revenir aux
+  rangées le ramène à quatre, l'alternative coûtant quatre champs à faire
+  survivre au stockage. L'**éventail de la grille descend toujours**, même ancré
+  en bas, pour que la carte peinte après ne cache que le bas de la précédente ;
+  l'ancre n'obéit donc qu'à moitié pour cette forme. Et l'**empreinte de pile est
+  uniforme** : trente Plaines et cinq uniques font tomber la diagonale pour
+  toutes les piles, y compris celles d'une seule carte.
+
+  41 tests couvrent la géométrie, et une sonde montre que chaque forme se
+  resserre **d'elle-même** dans un panneau plausible — le bornage final ne sert
+  qu'aux cadres plus petits qu'une carte. La recette exerce le chemin complet et
+  mesure ce qui compte vraiment : **quatre formes, quatre rangements distincts**.
+  Une forme qui compile et qui range comme sa voisine serait pire qu'une forme
+  absente : elle promettrait un réglage qui ne règle rien.
+
+  **Le fourre-tout `UserPrefs.extra` a été refondu au passage, et ce n'était pas
+  cosmétique.** `PATCH /api/me` le remplace **en entier** ; tant qu'un seul
+  réglage y vivait, relire et fusionner dans son coin suffisait. Au deuxième,
+  c'est un défaut garanti : chaque module gardant son propre instantané, le
+  second à écrire fusionne sur un `extra` périmé et efface ce que le premier
+  venait d'y poser. Le joueur aurait rangé son étagère à jetons, choisi une
+  disposition, et retrouvé son étagère vide au rechargement — sans que rien
+  n'ait échoué. Un seul instantané partagé, et les écritures mises à la file.
+
+  **Le lecteur de replay avance désormais d'une action, non d'une émission.** Un
+  pas de replay est une émission de protocole : un seul déplacement de carte en
+  produit plusieurs — le `CARD_MOVED` qu'on veut voir, puis les `ZONE_COUNT` des
+  deux zones, puis au besoin un `CARD_HIDDEN` par siège. Mesuré en instrumentant
+  un enregistrement réel :
+
+  ```
+   16  ZONE_COUNT    (dont 16 sans ligne de journal)
+   13  CARD_MOVED    (dont  8 sans ligne de journal)
+    6  CARDS_MOVED   (dont  6 sans ligne de journal)
+    1  LIFE_CHANGED
+  ```
+
+  **Près de la moitié du flux est de la comptabilité pure.** On cliquait
+  « suivant » et une fois sur deux rien ne bougeait — ce n'est pas une
+  imperfection d'affichage, c'est un lecteur qui fait perdre confiance : on ne
+  sait plus s'il est bloqué ou si la partie était calme.
+
+  **Rien n'a été retiré de l'enregistrement pour autant**, et c'est le point de
+  conception. C'était la correction évidente, et elle est fausse : `ZONE_COUNT`
+  fait autorité pour les zones cachées, où aucune carte n'est publiée pour être
+  comptée. L'amputer donnerait un replay aux compteurs faux, ce qui est pire
+  qu'un replay bavard. Ce sont les **commandes** qui avancent par action ;
+  l'état continue d'être reconstruit pas à pas, sans rien sauter. Le regroupement
+  s'appuie sur un fait du serveur — `Room.commit` calcule un seul `at` pour
+  toutes les émissions d'un même intent. Deux actions du même siège tombées dans
+  la même milliseconde fusionnent : c'est rare, et le pire cas est d'avancer de
+  deux gestes d'un coup, jamais de s'arrêter sur rien.
+
 - **Cinq demandes de table : mana flottant, terrains alignés, étiquettes, cimetière,
   sortie de replay** (20 septembre 2026).
 
