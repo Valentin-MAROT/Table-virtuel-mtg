@@ -325,7 +325,6 @@ export function ZonePanel({
   const selection = useGame((s) => s.selection);
   const setSelection = useGame((s) => s.setSelection);
   const openMenu = useGame((s) => s.openMenu);
-  const send = useGame((s) => s.send);
 
   // Les fiches arrivent par lots, après coup : sans ce réveil, la synthèse
   // resterait sur « 12 types inconnus » jusqu'au prochain rendu venu d'ailleurs,
@@ -697,11 +696,6 @@ function LibraryTab({ count, mine, seat }: { count: number; mine: boolean; seat:
   const t = useT();
   const send = useGame((s) => s.send);
   const zone: ZoneRef = { seat, kind: 'LIBRARY' };
-
-  const ask = (question: string, fallback: string): number | null => {
-    const value = Number.parseInt(window.prompt(question, fallback) ?? '', 10);
-    return Number.isFinite(value) && value > 0 ? value : null;
-  };
 
   return (
     <div className="flex-1 space-y-3 p-3 text-sm">
