@@ -37,11 +37,30 @@ export class TokenBucket {
     return true;
   }
 
-  /** Secondes à attendre avant qu'un jeton soit disponible. */
+  /**
+   * Secondes à attendre avant qu'un jeton soit disponible.
+   *
+   * **Le paramètre `now` n'était pas décoratif : il n'était pas lu.** Le seau se
+   * recharge paresseusement, à l'intérieur de `take` ; `state.tokens` porte donc
+   * le solde du **dernier appel à `take`**, pas le solde courant. En le lisant
+   * tel quel, cette méthode annonçait une attente figée : un compte bloqué à
+   * 0,2 jeton s'entendait dire « une seconde » une minute plus tard encore,
+   * alors que son seau était plein depuis longtemps. Les quatre routes
+   * d'authentification qui s'en servent renvoyaient ce chiffre à l'utilisateur.
+   *
+   * La même recharge que `take` est donc appliquée ici — mais **sans écrire** :
+   * demander quand on pourra réessayer ne doit ni consommer un jeton, ni
+   * déplacer la date de recharge.
+   */
   retryAfter(key: string, now = Date.now()): number {
     const state = this.buckets.get(key);
     if (!state) return 0;
-    const deficit = 1 - state.tokens;
+    const elapsed = (now - state.lastRefill) / 1000;
+    const tokens = Math.min(
+      this.options.capacity,
+      state.tokens + elapsed * this.options.refillPerSecond,
+    );
+    const deficit = 1 - tokens;
     if (deficit <= 0) return 0;
     return Math.ceil(deficit / this.options.refillPerSecond);
   }

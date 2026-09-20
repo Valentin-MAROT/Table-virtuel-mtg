@@ -242,12 +242,17 @@ function contextualIntents(rawKey: string, focus: CardView, targets: ObjectId[])
         return targets.map((targetId) => ({ type: 'ADD_COUNTER', targetId, kind: '+1/+1', delta: -1 }));
       case 'h':
         return move('HAND');
-      case 'g':
       // `Suppr` est le second chemin vers le cimetière, et le plus attendu :
       // c'est la touche qu'on cherche quand un permanent meurt. Elle suit
       // exactement la règle d'arbitrage du fichier — la carte survolée, ou
       // toute la sélection si la carte survolée en fait partie — parce que
       // c'est `targets` qui la porte, et non ce `case`.
+      //
+      // Le commentaire est **au-dessus** des deux `case` et non entre eux : un
+      // `case` vide qui enchaîne sur le suivant est licite et voulu, mais
+      // glisser quoi que ce soit au milieu le fait lire comme un oubli de
+      // `break` — par `no-fallthrough`, et par le prochain lecteur.
+      case 'g':
       case 'Delete':
         return move('GRAVEYARD');
       case 'e':

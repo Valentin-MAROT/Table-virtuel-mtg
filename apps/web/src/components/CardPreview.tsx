@@ -60,7 +60,6 @@ import {
   hoveredCardRects,
   previewBox,
   previewRect,
-  type PreviewCorner,
 } from '../lib/previewPlacement.js';
 
 const MARGIN = 16;

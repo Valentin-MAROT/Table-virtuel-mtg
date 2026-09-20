@@ -378,20 +378,11 @@ export function LookModal(): React.ReactElement | null {
       : null;
   const inspectedName = localizedCardName(inspectedLocalized, inspectedMeta?.name) ?? '';
 
-  const cardScale =
-    cardDensity === 'comfortable' ? 1.15 : cardDensity === 'standard' ? 0.92 : 0.72;
   const densityConfig = {
     comfortable: { scale: 1.05, minColWidth: '185px' },
     standard: { scale: 0.85, minColWidth: '150px' },
     compact: { scale: 0.68, minColWidth: '120px' },
   }[cardDensity];
-
-  const gridColsClass =
-    cardDensity === 'comfortable'
-      ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
-      : cardDensity === 'standard'
-        ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-        : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8';
 
   return (
     <div
@@ -640,7 +631,6 @@ export function LookModal(): React.ReactElement | null {
                   key={card.id}
                   bucket={buckets[card.id] ?? 'top'}
                   card={card}
-                  compact={large}
                   scale={densityConfig.scale}
                   menuOpen={activeMenuCardId === card.id}
                   hasAnyMenuOpen={activeMenuCardId !== null || inspectedCardId !== null}
@@ -869,7 +859,6 @@ export function LookModal(): React.ReactElement | null {
 function LookCardItem({
   card,
   bucket,
-  compact,
   scale,
   picked,
   menuOpen,
@@ -885,7 +874,6 @@ function LookCardItem({
   card: PublicCardView;
   offered: BucketDef[];
   bucket: Bucket;
-  compact: boolean;
   scale: number;
   picked: boolean;
   menuOpen: boolean;

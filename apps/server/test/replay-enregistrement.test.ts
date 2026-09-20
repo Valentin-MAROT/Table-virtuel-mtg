@@ -168,7 +168,6 @@ describe('enregistrement du flux', () => {
     // quelques kilo-octets. Si cette borne saute, le volume a changé de nature
     // et il faut revoir docs/replay.md.
     expect(stats.bytes / stats.eventCount).toBeLessThan(1200);
-    // eslint-disable-next-line no-console
     console.log(
       `[replay] table à 4 sièges vidée : ${stats.eventCount} pas, ${stats.bytes} octets ` +
         `(${Math.round(stats.bytes / stats.eventCount)} o/pas)`,

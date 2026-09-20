@@ -155,9 +155,19 @@ const STATUS_KEYS: Record<string, 'table.statusLobby' | 'table.statusPlaying' | 
     ENDED: 'table.statusEnded',
   };
 
-/** Les entiers longs se lisent mieux espacés : 99 231, pas 99231. */
+/**
+ * Les entiers longs se lisent mieux espacés : 99 231, pas 99231.
+ *
+ * **Le remplacement ne s'appliquait jamais.** Il cherchait U+00A0, l'espace
+ * insécable ordinaire, écrite en clair dans la source — donc invisible à la
+ * relecture. Or `toLocaleString('fr-FR')` sépare les milliers par **U+202F**,
+ * l'espace insécable *étroite*, sur tout moteur à ICU moderne. La classe
+ * couvre donc les deux, et les deux sont écrites en échappement : une espace
+ * exotique posée telle quelle dans un littéral ne se distingue pas d'une espace
+ * ordinaire, et le premier copier-coller la remplace sans que rien ne le dise.
+ */
 function num(value: number): string {
-  return value.toLocaleString('fr-FR').replace(/ /g, ' ');
+  return value.toLocaleString('fr-FR').replace(/[\u00a0\u202f]/g, ' ');
 }
 
 function shortDate(iso: string): string {
