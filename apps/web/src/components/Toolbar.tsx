@@ -7,22 +7,42 @@ import { askConfirm, askNumber, askText, openDialog } from './Dialog.js';
 /** Jetons les plus fréquents, créables sans passer par la recherche. */
 const QUICK_TOKENS = ['Treasure', 'Food', 'Clue', 'Blood', 'Soldier', 'Zombie'];
 
-/**
- * Boutons clairs sur fond sombre, comme sur la table de référence : gray-200 sur
- * gray-900, coins à 4 px, 6/12 de remplissage.
- * Boutons sombres élégants aux standards Impeccable.
+/*
+ * **Les boutons Impeccable, enfin rendus — et deux corrections pour qu'ils le soient.**
+ *
+ * Ces trois constantes portaient chacune *deux* littéraux : l'ancienne valeur
+ * affectée, puis la nouvelle posée en dessous — une **expression morte**, que
+ * JavaScript évalue et jette. Les commentaires avaient glissé avec, décrivant
+ * chacun la constante suivante. Le produit a donc affiché les anciens boutons
+ * pendant tout ce temps en annonçant les nouveaux juste au-dessus, et rien ne
+ * pouvait le dire : `no-unused-expressions` est une règle ESLint, et le dépôt
+ * n'avait pas de configuration ESLint bien qu'il porte un script `lint`. Il en a
+ * une désormais, et elle attrape exactement cette forme-là.
+ *
+ * Deux choses ont dû être corrigées pour que les valeurs voulues tiennent :
+ *
+ * - **`border-slate-750` n'existait pas.** Ni dans Tailwind, dont l'échelle
+ *   `slate` saute de 700 à 800, ni dans le thème du projet. La classe ne
+ *   produisait donc aucune règle, et la bordure serait retombée sur le défaut de
+ *   `preflight` — du gris clair, sur un panneau sombre. Plutôt que de rabattre
+ *   la valeur sur `slate-700` et de changer le dessin voulu, le jeton manquant
+ *   est **défini** dans `tailwind.config.js` : `#293548`, milieu exact de
+ *   `slate-700` (`#334155`) et `slate-800` (`#1e293b`).
+ * - **`animate-pulse` est passé sous `motion-safe:`.** Un bouton qui pulse en
+ *   permanence est précisément ce que les réglages « réduire les animations »
+ *   existent pour éteindre. La variante garde l'effet pour tout le monde, sauf
+ *   pour qui a demandé le contraire à son système.
  */
+
+/** Bouton d'action courant : sombre, discret, lisible sur la table. */
 const PRIMARY =
-  'rounded bg-gray-200 px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-white';
   'rounded-lg border border-slate-700 bg-slate-800/90 px-3 py-1.5 text-xs sm:text-sm font-semibold text-slate-100 shadow-sm backdrop-blur hover:bg-slate-700 hover:border-slate-600 transition-all active:scale-95';
+/** Le cran en dessous : ce qui ouvre un menu plutôt que ce qui agit. */
 const SECONDARY =
-  'rounded border border-edge bg-panel px-3 py-1.5 text-sm text-slate-200 hover:border-slate-500';
-/** Le même bouton, mais c'est à nous de jouer : il doit se voir. */
   'rounded-lg border border-slate-750 bg-slate-900/80 px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-200 shadow-sm backdrop-blur hover:bg-slate-800 hover:border-slate-600 transition-all active:scale-95';
-/** Le même bouton, mais c'est à nous de jouer : brillance émeraude lumineuse et vivante. */
+/** Le même bouton, mais c'est à nous de jouer : il doit se voir. */
 const PRIMARY_ACTIVE =
-  'rounded bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white ring-2 ring-sky-300/60 hover:bg-sky-400';
-  'rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-3.5 py-1.5 text-xs sm:text-sm font-bold text-white ring-2 ring-emerald-400/60 shadow-lg shadow-emerald-950/70 hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-95 animate-pulse';
+  'rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-3.5 py-1.5 text-xs sm:text-sm font-bold text-white ring-2 ring-emerald-400/60 shadow-lg shadow-emerald-950/70 hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-95 motion-safe:animate-pulse';
 
 export function Toolbar({
   onCreateToken,
@@ -66,6 +86,30 @@ export function Toolbar({
         title={myTurn ? 'Passer la main au joueur suivant' : "Ce n'est pas votre tour"}
       >
         Passer le tour
+      </button>
+
+      {/*
+        **Annuler n'existait qu'au clavier.** `Ctrl+Z` marchait depuis toujours,
+        mais rien ne le disait : un geste qu'aucune surface n'annonce n'existe
+        que pour qui le connaît déjà.
+
+        Le bouton n'est jamais grisé, et c'est délibéré : **le client ne sait
+        pas** ce qui est annulable — la pile d'annulation vit au serveur, avec
+        sa fenêtre de dix secondes et sa liste d'actions irréversibles. Le griser
+        d'après une supposition locale reviendrait à inventer un état, ce que ce
+        client ne fait nulle part. On envoie donc, et le serveur répond
+        précisément : « Plus rien à annuler dans les dix dernières secondes »,
+        « Mélanger la bibliothèque ne s’annule pas », ou « Quelqu’un a joué
+        depuis ». Ces phrases arrivent dans le bandeau de refus, qui est fait
+        pour être lu — c'est un meilleur retour qu'un bouton éteint et muet.
+      */}
+      <button
+        className={SECONDARY}
+        data-test="undo"
+        onClick={() => send({ type: 'UNDO_LAST' })}
+        title="Annuler la dernière action (Ctrl+Z)"
+      >
+        ↶ Annuler
       </button>
 
       <div className="relative">
