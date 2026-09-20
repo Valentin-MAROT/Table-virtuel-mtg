@@ -863,7 +863,20 @@ export const Table = memo(function Table({ readOnly = false }: { readOnly?: bool
                   command: counts.get(zoneKey({ seat: seat.id, kind: 'COMMAND' })) ?? command.length,
                   hand: counts.get(zoneKey({ seat: seat.id, kind: 'HAND' })) ?? seat.handCount,
                 }}
-                topGraveyard={graveyard[graveyard.length - 1]}
+                /*
+                  **La vignette du cimetière montre la carte qui vient d'y
+                  tomber**, et non la première de la partie.
+                  
+                  Elle prenait le **dernier** élément d'une liste triée par
+                  `sortIndex` croissant. Or le serveur insère en tête
+                  (`insertIntoZone`, position `TOP` par défaut) et renumérote
+                  derrière lui : la carte la plus récente porte donc
+                  `sortIndex` **0**, et la dernière de la liste est la plus
+                  ancienne. La pile affichait ainsi, pendant toute une partie,
+                  la première carte qui y était tombée — ce qu'un joueur lit
+                  comme « le dessus du cimetière », et qui était faux.
+                */
+                topGraveyard={graveyard[0]}
                 selection={selection}
                 highlight={highlighted}
                 attachPendingId={attachPending?.kind === 'CARD' ? attachPending.sourceId : null}
