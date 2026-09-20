@@ -455,9 +455,23 @@ export function TableLabel({
           left,
           top,
           background: '#0f172ae6',
-          // Une étiquette se lit par-dessus les cartes : elle sert justement à
-          // annoter ce qui est posé dessous.
-          zIndex: 20,
+          /*
+           * **Une étiquette se lit par-dessus les cartes, en tout temps.**
+           *
+           * Elle valait 20, et l'intention écrite ici n'était donc pas tenue :
+           * un permanent du champ de bataille est peint à 30, et le panneau de
+           * siège qui le contient n'ouvre **aucun contexte d'empilement** — il
+           * est `absolute` sans `z-index` ni `transform`. Les deux valeurs se
+           * comparaient donc directement, et la carte gagnait. Une étiquette
+           * posée pour annoter un permanent finissait dessous, c'est-à-dire
+           * invisible au moment précis où elle sert.
+           *
+           * 35 la place au-dessus des cartes sans passer devant les **curseurs
+           * des autres joueurs** (40), qui doivent rester lisibles quoi qu'il
+           * arrive : c'est par eux qu'on suit ce que la table est en train de
+           * faire.
+           */
+          zIndex: 35,
           // Une étiquette accrochée le dit : un liseré de la couleur du lien.
           ...(label.attachedTo ? { boxShadow: '0 0 0 1px #38bdf8aa' } : {}),
         }}
