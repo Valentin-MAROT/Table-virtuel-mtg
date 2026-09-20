@@ -29,6 +29,7 @@ import { TurnOrder } from '../components/TurnOrder.js';
 import { TableClosed } from '../components/TableClosed.js';
 import { PreGameDeck } from '../components/PreGameDeck.js';
 import { PrintingPicker } from '../components/PrintingPicker.js';
+import { ManaPool } from '../components/ManaPool.js';
 import { hasSeatToken } from '../net/socket.js';
 import { AccountModal } from '../components/AccountModal.js';
 import { useT } from '../lib/i18n/index.js';
@@ -197,7 +198,7 @@ export function RoomPage(): React.ReactElement {
           <button
             className="rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5 text-xs sm:text-sm text-slate-200 hover:bg-slate-800 hover:border-slate-600 hover:text-white shadow-sm backdrop-blur transition-all active:scale-95"
             onClick={() => setSettings(true)}
-            title="Playmat et dos de carte"
+            title={t('toolbar.playmat')}
           >
             ⚙
           </button>
@@ -330,6 +331,8 @@ export function RoomPage(): React.ReactElement {
       {printingFor && (
         <PrintingPicker card={printingFor} onClose={() => setPrintingFor(null)} />
       )}
+      {/* En bas à droite, face aux boutons de cadrage : voir `ManaPool`. */}
+      <ManaPool />
       <CardPreview />
       <DragLayer />
       <LookModal />

@@ -8,6 +8,7 @@
  * de laisser une ligne morte dans le panneau.
  */
 import { useState } from 'react';
+import { isManaCounter } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { useCloseOnEscape } from '../lib/overlay.js';
 import { useT } from '../lib/i18n/index.js';
@@ -44,7 +45,15 @@ export function CountersPanel({ onClose }: { onClose: () => void }): React.React
    * **carte** qui peut n'être qu'un mot-clé, et les deux partagent le même
    * type. D'où ce repli à zéro, qui ne se produit jamais en pratique.
    */
-  const existing = new Map(me.playerCounters.map((c) => [c.kind, c.value ?? 0]));
+  /*
+   * **La réserve de mana est écartée de cette liste.** Elle voyage par le même
+   * `SET_PLAYER_COUNTER`, mais elle a son propre menu — `ManaPool`, en bas à
+   * droite —, et deux endroits pour régler la même chose sont deux endroits qui
+   * finiront par se contredire à l'écran. Écarter au lieu de dupliquer.
+   */
+  const existing = new Map(
+    me.playerCounters.filter((c) => !isManaCounter(c.kind)).map((c) => [c.kind, c.value ?? 0]),
+  );
   const set = (kind: string, value: number): void => {
     // Borné à zéro : on ne descend pas sous la suppression.
     send({ type: 'SET_PLAYER_COUNTER', seat: me.id, kind, value: Math.max(0, value) });

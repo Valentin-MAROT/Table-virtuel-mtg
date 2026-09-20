@@ -39,7 +39,7 @@ export const en = defineTranslation({
   'toolbar.quickTokens': 'Quick tokens',
   'toolbar.shortcuts': 'Keyboard shortcuts',
   'toolbar.undo': 'Undo your last action (10 s)',
-  'toolbar.playmat': 'Playmat and card back',
+  'toolbar.playmat': 'Board settings',
   'table.concedeConfirm': 'Concede the game?',
   'table.concede': 'Concede',
 
@@ -783,6 +783,7 @@ export const en = defineTranslation({
   'seat.lookingLibrary': '👁 is looking at their library',
   'seat.handRevealed': 'hand revealed',
   'seat.handCount': '{count} card(s) in hand',
+  'seat.floatingMana': 'Floating mana',
   'seat.yourZone': 'Your zone',
   'seat.attachedObjects': 'Attached objects',
   'seat.commanderTaxNone': 'Commander tax: none, it has not been cast yet',
@@ -964,7 +965,7 @@ export const en = defineTranslation({
   'replay.position': 'Step {current} of {total}',
   'replay.truncated':
     'The recording hit its limit: the game carries on beyond what this replay shows.',
-  'replay.backToTable': 'Back to the table',
+  'replay.leave': 'Leave',
 
   // — Sharing a replay ——————————————————————————————————————
   'replay.shareTitle': 'Share this replay',

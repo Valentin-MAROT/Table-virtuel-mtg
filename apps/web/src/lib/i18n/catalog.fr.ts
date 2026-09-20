@@ -47,7 +47,7 @@ export const fr = {
   'toolbar.quickTokens': 'Jetons rapides',
   'toolbar.shortcuts': 'Raccourcis clavier',
   'toolbar.undo': 'Annuler sa dernière action (10 s)',
-  'toolbar.playmat': 'Playmat et dos de carte',
+  'toolbar.playmat': 'Réglages du plateau',
   'table.concedeConfirm': 'Concéder la partie ?',
   'table.concede': 'Concéder',
 
@@ -869,6 +869,7 @@ export const fr = {
   'seat.lookingLibrary': '👁 consulte sa bibliothèque',
   'seat.handRevealed': 'main révélée',
   'seat.handCount': '{count} carte(s) en main',
+  'seat.floatingMana': 'Mana flottant',
   'seat.yourZone': 'Votre zone',
   'seat.attachedObjects': 'Objets attachés',
   'seat.commanderTaxNone': 'Taxe de commandant : aucune, il n’a pas encore été lancé',
@@ -1067,7 +1068,7 @@ export const fr = {
   'replay.position': 'Pas {current} sur {total}',
   'replay.truncated':
     'L’enregistrement a atteint sa limite : la partie continue au-delà de ce que ce replay montre.',
-  'replay.backToTable': 'Retour à la table',
+  'replay.leave': 'Quitter',
 
   // — Partager un replay ————————————————————————————————————
   'replay.shareTitle': 'Partager ce replay',

@@ -1,3 +1,4 @@
+import { MANA_POOL_SYMBOLS, manaCounterKind, manaSymbolOf } from '@mtg/shared';
 import type { CardView, SeatSummary, ZoneKind } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { BATTLEFIELD_SCALE, CardSprite, CARD_HEIGHT, CARD_WIDTH, PILE_SCALE } from './CardSprite.js';
@@ -5,6 +6,7 @@ import { CardBack } from './CardBack.js';
 import { zoneAttr } from '../lib/drag.js';
 import { dragJustEnded } from './DragLayer.js';
 import { useT } from '../lib/i18n/index.js';
+import { manaSymbolUrl } from './ManaCost.js';
 
 /**
  * Dimensions d'un terrain de joueur.
@@ -104,6 +106,20 @@ export function SeatPanel({
 }: SeatPanelProps): React.ReactElement {
   const t = useT();
   const placement = attachmentLayout(battlefield);
+
+  /*
+   * La réserve de ce siège, dans l'ordre canonique des coûts de mana.
+   *
+   * L'ordre vient de `MANA_POOL_SYMBOLS` et non de l'ordre d'arrivée des
+   * compteurs : une réserve qui se réordonne au gré des clics se relit à chaque
+   * fois, alors qu'un coût de mana se lit d'un coup d'œil justement parce que
+   * l'ordre y est toujours le même.
+   */
+  const manaPool = MANA_POOL_SYMBOLS.map((symbol) => ({
+    symbol,
+    value: seat.playerCounters.find((c) => c.kind === manaCounterKind(symbol))?.value ?? 0,
+    url: manaSymbolUrl(symbol),
+  })).filter(({ value }) => value > 0);
   /**
    * Trois retours partagent le bandeau d'identité : la consultation en cours,
    * la main révélée, et la déconnexion. Ils sont lus ici plutôt que passés en
@@ -362,6 +378,49 @@ export function SeatPanel({
             </div>
           );
         })}
+
+        {/*
+          **La réserve de mana flottant, visible de toute la table.**
+
+          Elle n'apparaît **que si elle contient quelque chose** : une rangée de
+          six zéros sous chaque siège serait du bruit permanent pour une
+          information qui n'existe que par intermittence. Dès qu'un mana flotte,
+          en revanche, la table doit le voir — c'est elle qui dit si un joueur
+          peut répondre, et la masquer changerait le jeu.
+
+          Elle est posée **sur le terrain** et non dans le bandeau d'identité,
+          où elle était noyée parmi les pastilles de zone. Au coin **bas-droit**,
+          parce que le coin bas-gauche est celui où la disposition des terrains
+          range les siens par défaut : deux réglages qui se disputeraient le
+          même coin finiraient par se recouvrir.
+
+          `pointer-events-none` et un plan au-dessus des cartes (33, sous les
+          étiquettes à 35) : elle se lit par-dessus un terrain sans jamais voler
+          un clic à la carte qui est dessous.
+        */}
+        {manaPool.length > 0 && (
+          <div
+            className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1.5 rounded-md bg-slate-950/85 px-1.5 py-1 ring-1 ring-white/15"
+            data-test="seat-mana"
+            style={{ zIndex: 33 }}
+            title={t('seat.floatingMana')}
+          >
+            {manaPool.map(({ symbol, value, url }) => (
+              <span
+                key={symbol}
+                className="flex items-center gap-0.5 font-mono text-[11px] font-bold tabular-nums text-slate-100"
+                data-test={`seat-mana-${symbol}`}
+              >
+                {url ? (
+                  <img alt={symbol} className="shrink-0" height="13" src={url} width="13" />
+                ) : (
+                  <span>{symbol}</span>
+                )}
+                {value}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Bandeau d'identité, en haut à droite comme sur la table de référence. */}
@@ -448,8 +507,21 @@ export function SeatPanel({
           le serveur remet à zéro après le premier tour : la ligne restait, avec
           son « 0 », à côté de chaque joueur pour le reste de la partie.
         */}
+        {/*
+          **La réserve de mana ne s'affiche pas ici**, mais sur le terrain
+          lui-même, juste en dessous — voir la pastille `seat-mana`. Elle a
+          commencé dans ce bandeau, noyée parmi les autres pastilles, et c'était
+          la traiter comme un compteur de poison : celui-là se consulte une fois
+          par partie, une réserve de mana se regarde à chaque fois qu'on se
+          demande si le voisin peut répondre.
+
+          Un `mana:` **non reconnu** — le dialogue des compteurs accepte un nom
+          libre — reste en revanche dans la liste ordinaire ci-dessous : il vaut
+          mieux le montrer tel qu'il a été tapé que le faire passer pour une
+          couleur qu'il n'est pas.
+        */}
         {seat.playerCounters
-          .filter((counter) => counter.value !== 0)
+          .filter((counter) => counter.value !== 0 && !manaSymbolOf(counter.kind))
           .map((counter) => (
           <span key={counter.kind} className="text-slate-400" title={counter.kind}>
             · {counter.kind} {counter.value}
