@@ -23,20 +23,25 @@
  *
  * Le vérificateur a sa part : ce qui sort de `UserPrefs.extra` ou de
  * `localStorage` a pu être écrit par une autre version du client, ou à la main
- * — ou par la version d'avant, qui appelait `size` un `rows`.
+ * — ou par la version d'avant, qui appelait `size` un `rows` et réglait d'un
+ * seul `overlap` ce qui se règle aujourd'hui en deux. Cette migration-là est
+ * testée au pixel, contre un relevé pris sur le code d'avant : `AVANT`.
  */
 import { describe, expect, it } from 'vitest';
 import {
   BATTLEFIELD_BOUNDS,
   DEFAULT_LAND_LAYOUT,
   LAND_ANCHORS,
-  LAND_OVERLAP_MAX,
+  LAND_DIAGONAL_RANGE,
   LAND_SHAPES,
   LAND_SIZE_RANGE,
+  LAND_SPACING_RANGE,
   isLandTypeLine,
   landSlots,
   sanitizeLandLayout,
+  type LandAnchor,
   type LandLayout,
+  type LandShape,
 } from '../src/lib/landLayout.js';
 
 /** Les mêmes que celles peintes sur le champ de bataille : 166×230 à l'échelle 0,5. */
@@ -82,13 +87,18 @@ describe('landSlots — le cadre, pour les quatre formes', () => {
       for (const count of [1, 2, 3, 12, 40, 120]) {
         const lands = meles(count, ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest']);
         for (const size of [1, 2, 4, 8, 10]) {
-          for (const overlap of [0, 0.25, 0.6]) {
-            for (const anchor of LAND_ANCHORS) {
-              for (const slot of landSlots(lands, { shape, size, anchor, overlap })) {
-                expect(slot.x).toBeGreaterThanOrEqual(0);
-                expect(slot.y).toBeGreaterThanOrEqual(0);
-                expect(slot.x + LAND_W).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.width);
-                expect(slot.y + LAND_H).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.height);
+          // L'espacement est balayé des deux côtés du zéro : le côté positif
+          // est le seul réglage qui puisse, à lui seul, demander plus de place
+          // que le panneau n'en a, et c'est donc lui le nouveau suspect.
+          for (const spacing of [-0.6, -0.25, 0, 0.3]) {
+            for (const diagonal of [0, 25]) {
+              for (const anchor of LAND_ANCHORS) {
+                for (const slot of landSlots(lands, { shape, size, anchor, spacing, diagonal })) {
+                  expect(slot.x).toBeGreaterThanOrEqual(0);
+                  expect(slot.y).toBeGreaterThanOrEqual(0);
+                  expect(slot.x + LAND_W).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.width);
+                  expect(slot.y + LAND_H).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.height);
+                }
               }
             }
           }
@@ -132,7 +142,7 @@ describe('landSlots — le cadre, pour les quatre formes', () => {
 
 describe('landSlots — rangées', () => {
   it('resserre le pas plutôt que de déborder : 40 terrains sur 2 rangées', () => {
-    const slots = landSlots(anonymes(40), layout({ size: 2, overlap: 0 }));
+    const slots = landSlots(anonymes(40), layout({ size: 2, spacing: 0 }));
     // Vingt cartes de 83 px bord à bord font 1660 px : le panneau en fait 1076.
     const xs = slots.map((s) => s.x);
     expect(Math.max(...xs) + LAND_W).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.width);
@@ -174,11 +184,36 @@ describe('landSlots — rangées', () => {
     expect(haut[23]!.y).toBeGreaterThan(haut[0]!.y);
   });
 
-  it('le chevauchement demandé se lit dans le pas, tant qu’il tient', () => {
-    const serre = landSlots(anonymes(4), layout({ size: 1, overlap: 0.5 }));
-    const large = landSlots(anonymes(4), layout({ size: 1, overlap: 0 }));
-    expect(large[1]!.x - large[0]!.x).toBe(LAND_W);
-    expect(serre[1]!.x - serre[0]!.x).toBe(Math.round(LAND_W * 0.5));
+  it('l’espacement se lit dans le pas, des deux côtés du zéro', () => {
+    const pas = (spacing: number): number => {
+      const slots = landSlots(anonymes(4), layout({ size: 1, spacing }));
+      return slots[1]!.x - slots[0]!.x;
+    };
+    // Négatif : les cartes se recouvrent — tout ce que savait dire le réglage
+    // unique d'avant.
+    expect(pas(-0.5)).toBe(Math.round(LAND_W * 0.5));
+    // Zéro : jointives, bord à bord.
+    expect(pas(0)).toBe(LAND_W);
+    // Positif : de l'air entre elles, ce qui était impossible.
+    expect(pas(0.3)).toBe(Math.round(LAND_W * 1.3));
+  });
+
+  it('une base de mana de Commander tient encore à l’espacement maximal', () => {
+    // C'est ce cas-là, et pas un jugement d'apparence, qui fixe la borne haute
+    // de `LAND_SPACING_RANGE` : trente-sept terrains sur les quatre rangées du
+    // maximum, au pas voulu, sans que le resserrement ait à s'en mêler.
+    const slots = landSlots(anonymes(37), layout({ size: 4, spacing: LAND_SPACING_RANGE.max }));
+    expect(new Set(slots.map((s) => s.y)).size).toBe(4);
+    expect(slots[1]!.x - slots[0]!.x).toBe(Math.round(LAND_W * (1 + LAND_SPACING_RANGE.max)));
+    expect(Math.max(...slots.map((s) => s.x)) + LAND_W).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.width);
+  });
+
+  it('resserre aussi quand c’est l’air demandé qui ne tient pas', () => {
+    // Quarante terrains sur une seule rangée à +30 % réclameraient 4 291 px
+    // dans un panneau qui en fait 1076. Le pas cède, le cadre non.
+    const slots = landSlots(anonymes(40), layout({ size: 1, spacing: 0.3 }));
+    expect(slots[1]!.x - slots[0]!.x).toBeLessThan(LAND_W);
+    expect(Math.max(...slots.map((s) => s.x)) + LAND_W).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.width);
   });
 
   it('ignore les noms : c’est l’ordre de pose qui commande', () => {
@@ -199,12 +234,13 @@ describe('landSlots — grille', () => {
     expect(new Set(slots.map((s) => s.x)).size).toBe(4);
   });
 
-  it('chevauche à la verticale d’exactement la part demandée', () => {
-    // `pasY = hauteurCarte × (1 − chevauchement)` : c'est ce pas-là qui ne
-    // laisse voir que le haut de chaque carte, nom compris.
-    for (const overlap of [0, 0.2, 0.4, 0.6]) {
-      const slots = landSlots(anonymes(6), grille({ size: 2, overlap }));
-      expect(slots[2]!.y - slots[0]!.y).toBe(Math.round(LAND_H * (1 - overlap)));
+  it('écarte ou recouvre à la verticale d’exactement ce qu’on demande', () => {
+    // `pasY = hauteurCarte × (1 + espacement)` : serré, c'est ce pas-là qui ne
+    // laisse voir que le haut de chaque carte, nom compris ; desserré, c'est
+    // une grille ordinaire.
+    for (const spacing of [-0.6, -0.2, 0, 0.3]) {
+      const slots = landSlots(anonymes(6), grille({ size: 2, spacing }));
+      expect(slots[2]!.y - slots[0]!.y).toBe(Math.round(LAND_H * (1 + spacing)));
     }
   });
 
@@ -225,7 +261,7 @@ describe('landSlots — grille', () => {
   });
 
   it('resserre le pas vertical plutôt que de déborder', () => {
-    const slots = landSlots(anonymes(96), grille({ size: 2, overlap: 0 }));
+    const slots = landSlots(anonymes(96), grille({ size: 2, spacing: 0 }));
     // Quarante-huit rangées de 115 px feraient 5520 px dans 660 px de panneau.
     expect(slots[2]!.y - slots[0]!.y).toBeLessThan(LAND_H);
     expect(Math.max(...slots.map((s) => s.y)) + LAND_H).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.height);
@@ -278,17 +314,70 @@ describe('landSlots — piles par type', () => {
 
   it('laisse lire le nom des cartes du dessous, sur une main réaliste', () => {
     // Cinq types, huit exemplaires chacun : la base de mana d'un deck normal.
-    // Le décalage doit rester assez grand pour que le bandeau de titre sorte.
+    // Au décalage par défaut, rien ne force le resserrement et le bandeau de
+    // titre de chaque carte du dessous sort.
     const slots = landSlots(meles(40, ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest']), piles());
     expect(diagonale(slots, 0, 5)).toBeGreaterThanOrEqual(15);
   });
 
-  it('un chevauchement plus fort raccourcit la diagonale', () => {
-    // Ici le réglage dit « recouvre davantage » : recouvrir davantage, pour une
-    // pile, c'est décaler moins.
-    const lache = landSlots(meles(12, ['Plains', 'Island']), piles({ overlap: 0 }));
-    const serre = landSlots(meles(12, ['Plains', 'Island']), piles({ overlap: LAND_OVERLAP_MAX }));
-    expect(diagonale(serre, 0, 2)).toBeLessThan(diagonale(lache, 0, 2));
+  it('la diagonale se règle seule, sans rien devoir à l’espacement', () => {
+    // C'est la séparation même : le même décalage sort de quatre espacements
+    // différents, là où l'ancien réglage unique en donnait quatre.
+    for (const spacing of [-0.6, -0.25, 0, 0.3]) {
+      const slots = landSlots(meles(12, ['Plains', 'Island', 'Swamp']), piles({ spacing, diagonal: 18 }));
+      expect(diagonale(slots, 0, 3)).toBe(18);
+    }
+  });
+
+  it('l’espacement écarte les piles, sans rien devoir à la diagonale', () => {
+    // Douze terrains, trois noms : trois piles de quatre, donc une empreinte de
+    // 83 + 3 × 15 = 128 px de large. Le pas d'une pile à sa voisine est cette
+    // empreinte plus l'écart réglé.
+    const empreinte = LAND_W + 3 * 15;
+    for (const [spacing, ecart] of [
+      [0, 0],
+      [0.12, 10],
+      [0.3, 25],
+    ] as const) {
+      const slots = landSlots(
+        meles(12, ['Plains', 'Island', 'Swamp']),
+        piles({ spacing, diagonal: 15, anchor: 'top-left' }),
+      );
+      expect(slots[1]!.x - slots[0]!.x).toBe(empreinte + ecart);
+      expect(diagonale(slots, 0, 3)).toBe(15);
+    }
+  });
+
+  it('ne laisse jamais deux piles se recouvrir, quel que soit l’espacement', () => {
+    /*
+     * **C'est le seul endroit où l'espacement est bridé**, et il l'est parce
+     * que deux piles qui se recouvrent sont illisibles : on ne voit plus où
+     * l'une finit et l'autre commence, alors que le propre d'une pile est
+     * d'être un paquet qu'on compte du regard.
+     *
+     * Le cas n'est pas théorique : l'espacement est **un seul champ pour les
+     * quatre formes**, et son défaut vaut −25 %. Sans plancher, choisir « Piles
+     * par type » sans avoir rien réglé donnerait des piles empilées les unes
+     * sur les autres — un premier essai raté pour un réglage qu'on n'a pas
+     * touché.
+     */
+    const empreinte = LAND_W + 3 * 15;
+    for (const spacing of [-0.6, -0.25, -0.01, 0] as const) {
+      const slots = landSlots(
+        meles(12, ['Plains', 'Island', 'Swamp']),
+        piles({ spacing, diagonal: 15, anchor: 'top-left' }),
+      );
+      // Jointives au plus serré, jamais chevauchées.
+      expect(slots[1]!.x - slots[0]!.x, `espacement ${spacing}`).toBe(empreinte);
+    }
+  });
+
+  it('une diagonale nulle empile exactement, et c’est permis', () => {
+    // Le compte d'un coup d'œil est perdu, la place est gagnée : c'est le
+    // marché, et il appartient au joueur.
+    const slots = landSlots(meles(12, ['Plains', 'Island', 'Swamp']), piles({ diagonal: 0 }));
+    expect(diagonale(slots, 0, 3)).toBe(0);
+    expect(slots[3]!.y).toBe(slots[0]!.y);
   });
 
   it('descend en diagonale quel que soit le coin d’ancrage', () => {
@@ -339,6 +428,21 @@ describe('landSlots — piles de taille fixe', () => {
   });
 });
 
+describe('les quatre formes rangent quatre fois différemment', () => {
+  it('ne rend jamais deux fois le même rangement', () => {
+    // La séparation des réglages touche les quatre formes à la fois : si l'une
+    // se mettait à calculer comme sa voisine, aucune borne ne serait franchie
+    // et rien d'autre ne le dirait.
+    const lands = meles(12, ['Plains', 'Island', 'Swamp']);
+    const rendus = LAND_SHAPES.map((shape) =>
+      landSlots(lands, layout({ shape, anchor: 'top-left' }))
+        .map((slot) => `${slot.x},${slot.y}`)
+        .join(' '),
+    );
+    expect(new Set(rendus).size).toBe(LAND_SHAPES.length);
+  });
+});
+
 describe('sanitizeLandLayout', () => {
   it('rend les défauts pour tout ce qui n’est pas une disposition', () => {
     for (const value of [null, undefined, 3, 'bottom-left', [], { rows: 'deux' }]) {
@@ -365,9 +469,17 @@ describe('sanitizeLandLayout', () => {
     expect(sanitizeLandLayout({ size: 2.6 }).size).toBe(3);
   });
 
-  it('borne le chevauchement au lieu de le refuser', () => {
-    expect(sanitizeLandLayout({ overlap: -1 }).overlap).toBe(0);
-    expect(sanitizeLandLayout({ overlap: 5 }).overlap).toBe(LAND_OVERLAP_MAX);
+  it('borne l’espacement et la diagonale au lieu de les refuser', () => {
+    expect(sanitizeLandLayout({ spacing: -9 }).spacing).toBe(LAND_SPACING_RANGE.min);
+    expect(sanitizeLandLayout({ spacing: 9 }).spacing).toBe(LAND_SPACING_RANGE.max);
+    expect(sanitizeLandLayout({ diagonal: -5 }).diagonal).toBe(LAND_DIAGONAL_RANGE.min);
+    expect(sanitizeLandLayout({ diagonal: 500 }).diagonal).toBe(LAND_DIAGONAL_RANGE.max);
+    // Le décalage est en pixels : un dixième de pixel ne veut rien dire une
+    // fois les coordonnées arrondies.
+    expect(sanitizeLandLayout({ diagonal: 12.4 }).diagonal).toBe(12);
+    // Et l'espacement au centième, parce qu'un curseur HTML rend volontiers
+    // -0.30000000000000004 : ce qu'on enregistre est ce que le libellé montre.
+    expect(sanitizeLandLayout({ spacing: -0.1 - 0.2 }).spacing).toBe(-0.3);
   });
 
   it('ne garde une forme et un ancrage que s’ils existent', () => {
@@ -378,18 +490,125 @@ describe('sanitizeLandLayout', () => {
   });
 
   it('laisse passer une disposition valide sans la toucher', () => {
-    const valide: LandLayout = { shape: 'piles-fixed', size: 5, anchor: 'bottom-right', overlap: 0.4 };
+    const valide: LandLayout = {
+      shape: 'piles-fixed',
+      size: 5,
+      anchor: 'bottom-right',
+      spacing: 0.15,
+      diagonal: 22,
+    };
     expect(sanitizeLandLayout(valide)).toEqual(valide);
   });
 
   it('assainit aussi ce qu’on passe à la géométrie, plutôt que de le croire', () => {
     // Un réglage hors bornes ne doit pas produire une géométrie hors cadre.
-    const slots = landSlots(anonymes(120), { shape: 'rows', size: 99, anchor: 'nulle part' as never, overlap: 9 });
+    const slots = landSlots(anonymes(120), {
+      shape: 'rows',
+      size: 99,
+      anchor: 'nulle part' as never,
+      spacing: 9,
+      diagonal: 900,
+    });
     expect(slots.length).toBe(120);
     expect(new Set(slots.map((s) => s.y)).size).toBe(LAND_SIZE_RANGE.rows.max);
     for (const slot of slots) {
       expect(slot.x + LAND_W).toBeLessThanOrEqual(BATTLEFIELD_BOUNDS.width);
     }
+  });
+});
+
+/**
+ * Ce que l'ancien réglage unique dessinait, relevé sur le code d'avant la
+ * séparation : douze terrains, trois noms, `overlap: 0,25`. Un couple `x,y` par
+ * terrain, dans l'ordre d'entrée.
+ *
+ * Des nombres écrits à la main plutôt qu'un calcul : un relevé que recalculerait
+ * le code qu'il surveille ne surveille rien. Ceux-ci viennent de l'exécution de
+ * la version d'avant, et ne bougeront plus.
+ */
+const AVANT: ReadonlyArray<readonly [LandShape, number, LandAnchor, string]> = [
+  [
+    'rows',
+    2,
+    'bottom-left',
+    '8,537 70,537 133,537 195,537 257,537 319,537 382,537 444,537 506,537 568,537 631,537 693,537',
+  ],
+  [
+    'grid',
+    4,
+    'top-left',
+    '8,8 93,8 178,8 263,8 8,94 93,94 178,94 263,94 8,181 93,181 178,181 263,181',
+  ],
+  [
+    'piles-by-type',
+    4,
+    'top-left',
+    '8,8 146,8 284,8 23,23 161,23 299,23 38,38 176,38 314,38 53,53 191,53 329,53',
+  ],
+  [
+    'piles-fixed',
+    4,
+    'top-left',
+    '8,8 23,23 38,38 53,53 146,8 161,23 176,38 191,53 284,8 299,23 314,38 329,53',
+  ],
+];
+
+describe('sanitizeLandLayout — la préférence enregistrée avant la séparation', () => {
+  const douze = meles(12, ['Plains', 'Island', 'Swamp']);
+  const rendu = (pref: unknown): string =>
+    landSlots(douze, pref as LandLayout)
+      .map((slot) => `${slot.x},${slot.y}`)
+      .join(' ');
+
+  it('lit l’ancien `overlap` comme un espacement négatif', () => {
+    // « Chevauchement de 25 % » et « espacement de −25 % » sont le même
+    // réglage ; oublier le signe rendrait de l'air à qui demandait du serré.
+    expect(sanitizeLandLayout({ overlap: 0.25 }).spacing).toBe(-0.25);
+    expect(sanitizeLandLayout({ shape: 'grid', overlap: 0.4 }).spacing).toBe(-0.4);
+    expect(sanitizeLandLayout({ overlap: 0 }).spacing).toBe(0);
+    // `spacing` l'emporte quand les deux sont là : c'est le nom courant.
+    expect(sanitizeLandLayout({ spacing: 0.1, overlap: 0.25 }).spacing).toBe(0.1);
+  });
+
+  it('en tire aussi la diagonale, par la formule d’alors', () => {
+    // L'ancien réglage la pilotait à l'envers : plus de chevauchement voulait
+    // dire moins de décalage.
+    expect(sanitizeLandLayout({ overlap: 0 }).diagonal).toBe(20);
+    expect(sanitizeLandLayout({ overlap: 0.25 }).diagonal).toBe(15);
+    expect(sanitizeLandLayout({ overlap: 0.5 }).diagonal).toBe(10);
+    // `diagonal` l'emporte de la même façon.
+    expect(sanitizeLandLayout({ diagonal: 3, overlap: 0.25 }).diagonal).toBe(3);
+  });
+
+  it('rend aux piles l’écart qu’elles avaient, et non celui des rangées', () => {
+    // Pour les piles, `overlap` ne disait rien de l'écart entre piles : il
+    // valait dix pixels, fixes. Le convertir en −25 % les ferait se recouvrir
+    // sous les yeux de quelqu'un qui n'a rien touché.
+    expect(sanitizeLandLayout({ shape: 'piles-by-type', overlap: 0.25 }).spacing).toBe(0.12);
+    expect(sanitizeLandLayout({ shape: 'piles-fixed', overlap: 0.5 }).spacing).toBe(0.12);
+    expect(Math.round(LAND_W * 0.12)).toBe(10);
+  });
+
+  it('ne se laisse pas emporter par un `overlap` hors de ses propres bornes', () => {
+    // Bornes d'alors, et non celles d'aujourd'hui : on reconstitue ce que
+    // l'ancien code dessinait, lui qui bornait déjà à [0 ; 0,6].
+    expect(sanitizeLandLayout({ overlap: -1 }).spacing).toBe(0);
+    expect(sanitizeLandLayout({ overlap: 5 }).spacing).toBe(-0.6);
+    expect(sanitizeLandLayout({ overlap: 5 }).diagonal).toBe(8);
+  });
+
+  it('ne change pas d’un pixel ce que l’ancien réglage dessinait', () => {
+    for (const [shape, size, anchor, attendu] of AVANT) {
+      expect(rendu({ shape, size, anchor, overlap: 0.25 })).toBe(attendu);
+    }
+  });
+
+  it('ne le change pas davantage pour un chevauchement plus fort', () => {
+    // Le cas qui prouve que la diagonale migre, et pas seulement l'espacement :
+    // à 0,5, l'ancien code décalait de 10 px au lieu de 15.
+    expect(rendu({ shape: 'piles-by-type', size: 4, anchor: 'top-left', overlap: 0.5 })).toBe(
+      '8,8 131,8 254,8 18,18 141,18 264,18 28,28 151,28 274,28 38,38 161,38 284,38',
+    );
   });
 });
 

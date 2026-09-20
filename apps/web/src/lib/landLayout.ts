@@ -40,13 +40,14 @@ export const LAND_ANCHORS: readonly LandAnchor[] = [
 /**
  * La forme de l'éventail, et ce que chacune échange contre quoi.
  *
- * - `rows` — **rangées.** Chevauchement horizontal : de chaque terrain on voit
- *   la tranche du côté de l'ancre, soit le nom et le coût. C'est la forme la
- *   plus lisible carte par carte, et la plus gourmande en largeur.
- * - `grid` — **grille resserrée.** Colonnes jointives, chevauchement vertical :
- *   de chaque terrain on ne voit plus que le haut — nom et début
- *   d'illustration. La forme la plus économe en place, et celle qui rend le
- *   compte d'un type difficile à faire d'un coup d'œil.
+ * - `rows` — **rangées.** L'espacement joue à l'horizontale : serré, de chaque
+ *   terrain on ne voit que la tranche du côté de l'ancre, soit le nom et le
+ *   coût. C'est la forme la plus lisible carte par carte, et la plus gourmande
+ *   en largeur.
+ * - `grid` — **grille resserrée.** Colonnes jointives, l'espacement joue à la
+ *   verticale : serré, de chaque terrain on ne voit plus que le haut — nom et
+ *   début d'illustration. La forme la plus économe en place, et celle qui rend
+ *   le compte d'un type difficile à faire d'un coup d'œil.
  * - `piles-by-type` — **piles par type.** Une pile par nom de carte, décalées
  *   en diagonale. On compte ses Plaines d'un regard ; on perd l'ordre de pose,
  *   et l'ordre de peinture ne suit plus les piles (voir `pileSlots`).
@@ -57,6 +58,17 @@ export const LAND_ANCHORS: readonly LandAnchor[] = [
 export type LandShape = 'rows' | 'grid' | 'piles-by-type' | 'piles-fixed';
 
 export const LAND_SHAPES: readonly LandShape[] = ['rows', 'grid', 'piles-by-type', 'piles-fixed'];
+
+/**
+ * Les deux formes qui empilent — les seules à lire `diagonal`.
+ *
+ * Exporté parce que les réglages s'en servent pour **cacher** le curseur de
+ * diagonale sur les deux autres formes : un réglage sans effet qu'on laisse
+ * visible se règle, et ne produit rien.
+ */
+export function isPileShape(shape: LandShape): boolean {
+  return shape === 'piles-by-type' || shape === 'piles-fixed';
+}
 
 export interface LandLayout {
   shape: LandShape;
@@ -71,12 +83,25 @@ export interface LandLayout {
   size: number;
   anchor: LandAnchor;
   /**
-   * Part de la carte que la suivante recouvre, de 0 à `LAND_OVERLAP_MAX`.
-   * Horizontalement pour `rows`, verticalement pour `grid`, et en diagonale
-   * pour les piles (où il pilote un décalage d'autant plus petit qu'il est
-   * grand — voir `pileStep`).
+   * L'écart d'une carte à la suivante, **signé**, en fraction de la carte :
+   * horizontalement pour `rows`, verticalement pour `grid`, et d'une pile à sa
+   * voisine pour les deux formes en piles.
+   *
+   * Négatif, les cartes se recouvrent — c'est tout ce que savait faire le
+   * `overlap` qu'il remplace. À zéro elles sont jointives. Positif, il reste de
+   * l'air entre elles, ce qui était impossible et que réclame un champ de
+   * bataille à demi vide. Bornes : `LAND_SPACING_RANGE`.
    */
-  overlap: number;
+  spacing: number;
+  /**
+   * Le décalage d'une carte à la suivante **dans** une pile, en pixels.
+   *
+   * Il était déduit de l'espacement, et c'était une confusion : serrer les
+   * piles les unes contre les autres et voir moins de chaque carte d'une pile
+   * sont deux souhaits distincts, que le même curseur rendait indissociables.
+   * Les rangées et la grille ne le lisent pas. Bornes : `LAND_DIAGONAL_RANGE`.
+   */
+  diagonal: number;
 }
 
 export interface LandSizeRange {
@@ -105,8 +130,8 @@ export interface LandSizeRange {
  *   chose à cacher, et l'on gagnerait mieux sa place en rangées.
  * - piles : une pile de moins de deux cartes est une carte. À dix, au décalage
  *   par défaut, une pile occupe déjà 218 × 250 px — un cinquième de la largeur
- *   utile, et quatre piles par ligne. Au-delà, on range des tours, plus des
- *   piles.
+ *   utile, et quatre piles par ligne tant qu'elles sont jointives. Au-delà, on
+ *   range des tours, plus des piles.
  *
  * `piles-by-type` porte quand même un intervalle : le champ existe dans l'objet
  * enregistré, et l'assainisseur doit en rendre *quelque chose*. Il n'est lu par
@@ -120,10 +145,40 @@ export const LAND_SIZE_RANGE: Readonly<Record<LandShape, LandSizeRange>> = {
 };
 
 /**
- * Au-delà de 60 %, il ne reste d'un terrain que sa tranche : ni le nom, ni le
- * symbole de mana ne s'y lisent, et l'on ne sait plus ce qu'on engage.
+ * Les bornes de l'espacement, en fraction de la carte.
+ *
+ * **Du côté négatif, c'est le chevauchement d'avant**, et la borne n'a pas
+ * bougé : au-delà de −60 % il ne reste d'un terrain que sa tranche — ni le nom,
+ * ni le symbole de mana ne s'y lisent, et l'on ne sait plus ce qu'on engage.
+ *
+ * **Du côté positif, c'est de l'air**, ce que le réglage d'avant ne savait pas
+ * faire. +30 % est mesuré et non choisi au jugé : à ce pas (83 × 1,3 ≈ 108 px)
+ * une base de mana de Commander — trente-sept terrains — tient encore sur les
+ * quatre rangées du maximum, dix par rangée, sans que `landSlots` ait à
+ * resserrer. À +40 % (116 px) il n'en tiendrait plus que neuf par rangée, soit
+ * trente-six places pour trente-sept terrains : le pas serait resserré d'office
+ * et le curseur ne rendrait plus ce qu'il promet.
+ *
+ * L'intervalle n'est pas symétrique, et c'est voulu : un champ de bataille se
+ * remplit, et la place manque bien plus souvent qu'elle n'abonde.
  */
-export const LAND_OVERLAP_MAX = 0.6;
+export const LAND_SPACING_RANGE = { min: -0.6, max: 0.3 } as const;
+
+/**
+ * Les bornes du décalage diagonal, en pixels — les piles, et elles seules.
+ *
+ * Zéro est permis : la pile devient une carte, on gagne toute la place et l'on
+ * perd le compte d'un coup d'œil. C'est un marché qu'on peut vouloir faire sur
+ * un champ de bataille chargé, et le refuser serait décider à la place du
+ * joueur.
+ *
+ * 25 est le point où une pile cesse d'être une pile : dix cartes y occupent
+ * 308 × 340 px, soit près d'un tiers des 1060 px utiles en largeur et plus de
+ * la moitié des 644 en hauteur. Au-delà, ce qu'on gagne est l'illustration des
+ * cartes du dessous, et ce qu'on perd est de les avoir toutes sous les yeux —
+ * `pileSlots` resserrant de lui-même dès que ça ne tient plus.
+ */
+export const LAND_DIAGONAL_RANGE = { min: 0, max: 25 } as const;
 
 /**
  * Deux rangées par défaut, et non une.
@@ -136,13 +191,16 @@ export const LAND_OVERLAP_MAX = 0.6;
  * deux ou trois terrains du début de partie tiennent quand même sur une ligne.
  *
  * La forme par défaut reste `rows` : c'est la seule qui existait, et changer la
- * disposition sous les yeux de qui n'a rien demandé n'est pas un service.
+ * disposition sous les yeux de qui n'a rien demandé n'est pas un service. Pour
+ * la même raison, −25 % et 15 px sont exactement ce que rendait le réglage
+ * unique à 0,25 qu'ils remplacent : pas de rangée ni de pile qui bouge.
  */
 export const DEFAULT_LAND_LAYOUT: LandLayout = {
   shape: 'rows',
   size: 2,
   anchor: 'bottom-left',
-  overlap: 0.25,
+  spacing: -0.25,
+  diagonal: 15,
 };
 
 /**
@@ -183,22 +241,96 @@ const GAP_Y = 10;
  */
 const GRID_GAP_X = 2;
 
-/** Respiration entre deux piles voisines, dans les deux sens. */
-const PILE_GAP = 10;
-
 /**
- * Le plus grand décalage diagonal d'une pile, en pixels.
+ * L'écart entre deux piles voisines, d'après l'espacement réglé.
  *
- * Vingt est un réglage d'apparence et non une contrainte : assez pour qu'on
- * distingue et compte les cartes du dessous, assez peu pour qu'une pile de dix
- * tienne dans 218 × 250 px. `pileSlots` le réduit de lui-même dès que le
- * panneau ne suit plus — trente Plaines le ramènent à 6 px.
+ * La **largeur** de carte sert d'unité aux deux axes, pour que deux piles
+ * soient écartées de côté d'autant qu'elles le sont en dessous — c'est ce que
+ * faisaient les dix pixels fixes d'avant, et l'œil lit mal une grille dont les
+ * deux écarts diffèrent.
+ *
+ * **Il ne descend jamais sous zéro, et c'est le seul endroit où l'espacement
+ * est bridé.** Deux piles qui se recouvrent sont illisibles : on ne voit plus
+ * où l'une finit et où l'autre commence, alors que le propre d'une pile est
+ * justement d'être un paquet qu'on compte du regard. Pire, le recouvrement
+ * entre voisines réveille l'irrégularité d'ordre de peinture que `pileSlots`
+ * documente — l'ordre suit la pose, pas les piles.
+ *
+ * Le bridage n'est pas une précaution abstraite : l'espacement est **un seul
+ * champ pour les quatre formes**, et son défaut vaut −25 %. Sans plancher, un
+ * joueur qui choisit « Piles par type » sans avoir rien réglé obtiendrait des
+ * piles écartées de −21 px, c'est-à-dire empilées les unes sur les autres — un
+ * premier essai raté pour un réglage qu'il n'a pas touché.
+ *
+ * Le curseur, lui, part de zéro quand une forme en piles est choisie
+ * (`SeatSettings`) : la valeur montrée est donc celle qui s'applique, et le
+ * réglage ne se contredit pas à l'écran.
  */
-const PILE_STEP_MAX = 20;
+function pileGap(spacing: number): number {
+  return Math.round(LAND_SLOT_W * Math.max(0, spacing));
+}
 
 export interface LandSlot {
   x: number;
   y: number;
+}
+
+/**
+ * Ce qu'une préférence écrite avant la séparation vaut dans la convention
+ * d'aujourd'hui.
+ *
+ * L'ancien `overlap` allait de 0 à 0,6 et disait « recouvre d'autant » : c'est
+ * l'espacement d'aujourd'hui **au signe près**, et il n'y a rien de plus à
+ * faire pour les rangées et la grille.
+ *
+ * Les piles sont le cas qui coûte. `overlap` n'y pilotait pas l'écart entre
+ * piles — dix pixels fixes, quoi qu'on règle — mais la **diagonale**, par la
+ * formule reprise ici. Rendre `−overlap` comme espacement ferait donc
+ * chevaucher les piles de quelqu'un qui n'a rien touché ; 0,12 leur rend leurs
+ * dix pixels au pixel près, puisque `Math.round(83 × 0,12)` vaut 10. Le prix
+ * est une migration qui regarde la forme enregistrée, au lieu de convertir un
+ * nombre sans le lire.
+ *
+ * Ces trois constantes ne décrivent plus rien de vivant : elles ne servent
+ * qu'à relire ce que la version d'avant a écrit, et ne bougeront plus.
+ */
+const LEGACY_OVERLAP_MAX = 0.6;
+const LEGACY_PILE_STEP_MAX = 20;
+const LEGACY_PILE_SPACING = 0.12;
+
+function fromLegacyOverlap(value: unknown, shape: LandShape): { spacing: number; diagonal: number } {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) {
+    return { spacing: DEFAULT_LAND_LAYOUT.spacing, diagonal: DEFAULT_LAND_LAYOUT.diagonal };
+  }
+  // Bornes d'alors, et non celles d'aujourd'hui : on reconstitue ce que
+  // l'ancien code *dessinait*, y compris quand la valeur enregistrée sortait
+  // déjà de son intervalle.
+  const overlap = Math.min(LEGACY_OVERLAP_MAX, Math.max(0, raw));
+  return {
+    spacing: isPileShape(shape) ? LEGACY_PILE_SPACING : -overlap,
+    diagonal: Math.round(LEGACY_PILE_STEP_MAX * (1 - overlap)),
+  };
+}
+
+function bound(value: number, range: { min: number; max: number }): number {
+  return Math.min(range.max, Math.max(range.min, value));
+}
+
+/**
+ * Un espacement au centième, et un zéro sans signe.
+ *
+ * L'arrondi, parce qu'un curseur HTML rend volontiers `0.30000000000000004` :
+ * ce nombre-là partirait tel quel au stockage, pour en revenir s'afficher
+ * « 30 % ». Ce qu'on enregistre doit être ce que le libellé montre.
+ *
+ * Le `+ 0`, parce que nier un ancien chevauchement nul donne `-0` :
+ * `JSON.stringify` l'écrit « 0 » et il revient donc **différent** de ce qu'on
+ * avait en mémoire. Rien n'en bouge au dessin, mais toute comparaison de
+ * préférences trébuche dessus.
+ */
+function hundredths(value: number): number {
+  return Math.round(value * 100) / 100 + 0;
 }
 
 /** Ne fait jamais confiance à ce qui sort d'un stockage ou d'une API. */
@@ -227,8 +359,11 @@ export function sanitizeLandLayout(value: unknown): LandLayout {
    * faire, ne peut jamais produire de géométrie absurde.
    */
   const range = LAND_SIZE_RANGE[shape];
-  const overlap = Number(raw['overlap']);
   const anchor = raw['anchor'];
+
+  const legacy = fromLegacyOverlap(raw['overlap'], shape);
+  const spacing = Number(raw['spacing']);
+  const diagonal = Number(raw['diagonal']);
 
   return {
     shape,
@@ -238,9 +373,10 @@ export function sanitizeLandLayout(value: unknown): LandLayout {
     anchor: LAND_ANCHORS.includes(anchor as LandAnchor)
       ? (anchor as LandAnchor)
       : DEFAULT_LAND_LAYOUT.anchor,
-    overlap: Number.isFinite(overlap)
-      ? Math.min(LAND_OVERLAP_MAX, Math.max(0, overlap))
-      : DEFAULT_LAND_LAYOUT.overlap,
+    spacing: hundredths(bound(Number.isFinite(spacing) ? spacing : legacy.spacing, LAND_SPACING_RANGE)),
+    // En pixels, donc entier : un décalage de 12,4 px ne veut rien dire une
+    // fois les coordonnées arrondies par `place`.
+    diagonal: Math.round(bound(Number.isFinite(diagonal) ? diagonal : legacy.diagonal, LAND_DIAGONAL_RANGE)),
   };
 }
 
@@ -285,10 +421,13 @@ function reading(anchor: LandAnchor): { toLeft: boolean; upward: boolean } {
  * doit pas avoir à savoir laquelle est réglée pour construire son entrée.
  *
  * **Le pas se resserre, le panneau ne cède jamais.** C'est la seule règle dure
- * de ce module, commune aux quatre formes : le chevauchement demandé est un
- * *souhait*, pas un contrat. Si la disposition voulue ne tient pas, elle se
- * resserre — plutôt que de laisser le dernier terrain sortir par le bord, où il
- * serait invisible sans que rien ne le signale.
+ * de ce module, commune aux quatre formes : l'espacement et la diagonale
+ * demandés sont des *souhaits*, pas des contrats. Si la disposition voulue ne
+ * tient pas, elle se resserre — plutôt que de laisser le dernier terrain sortir
+ * par le bord, où il serait invisible sans que rien ne le signale. C'est du
+ * côté positif de l'espacement que la règle travaille le plus : demander de
+ * l'air entre les cartes est le seul réglage qui puisse, à lui seul, réclamer
+ * plus de place que le panneau n'en a.
  *
  * **L'ordre compte, et pas seulement pour la position.** Sur le champ de
  * bataille, tous les permanents non attachés partagent le même `zIndex` (30,
@@ -333,7 +472,7 @@ function rowSlots(
   // `roomX` est la place qui reste une fois la *dernière* carte de la rangée
   // posée : c'est elle qui se partage entre les intervalles.
   const roomX = Math.max(0, bounds.width - 2 * MARGIN - LAND_SLOT_W);
-  const wantedX = LAND_SLOT_W * (1 - safe.overlap);
+  const wantedX = LAND_SLOT_W * (1 + safe.spacing);
 
   /*
    * `size` est un **plafond**, pas une consigne.
@@ -417,7 +556,7 @@ function gridSlots(
   const stepX = cols > 1 ? Math.min(wantedX, roomX / (cols - 1)) : wantedX;
 
   const roomY = Math.max(0, bounds.height - 2 * MARGIN - LAND_SLOT_H);
-  const wantedY = LAND_SLOT_H * (1 - safe.overlap);
+  const wantedY = LAND_SLOT_H * (1 + safe.spacing);
   const stepY = rows > 1 ? Math.min(wantedY, roomY / (rows - 1)) : wantedY;
 
   const { toLeft, upward } = reading(safe.anchor);
@@ -475,22 +614,11 @@ function groupByCount(total: number, perPile: number): number[][] {
 }
 
 /**
- * Le décalage diagonal voulu, d'après le chevauchement.
- *
- * Il **décroît** quand le chevauchement croît, contrairement aux pas des deux
- * autres formes qui, eux, sont des distances entre cartes : ici le réglage dit
- * « recouvre davantage », et recouvrir davantage veut dire décaler moins.
- */
-function pileStep(overlap: number): number {
-  return Math.round(PILE_STEP_MAX * (1 - overlap));
-}
-
-/**
  * Des piles alignées, qui passent à la ligne, et se resserrent plutôt que de
  * sortir du cadre.
  *
  * **Toutes les piles ont la même empreinte**, celle de la plus profonde. Avec
- * trente Plaines et cinq terrains uniques, la diagonale tombe de 15 à 6 px pour
+ * trente Plaines et cinq terrains uniques, la diagonale tombe de 15 à 7 px pour
  * *tout le monde*, y compris pour les piles d'une seule carte qui auraient tenu
  * sans peine. L'alternative — une largeur de colonne par pile — rendrait
  * l'alignement irrégulier et le calcul du passage à la ligne bien plus fragile,
@@ -498,10 +626,10 @@ function pileStep(overlap: number): number {
  *
  * Le resserrement se fait en deux temps, et dans cet ordre : d'abord la
  * diagonale (on cherche le plus grand décalage qui tienne, en descendant de
- * pixel en pixel — vingt et un essais au pire), ensuite seulement le pas entre
- * piles. C'est l'ordre qui abîme le moins : une diagonale plus courte cache le
- * nom des cartes du dessous, mais des piles qui se chevauchent cachent des
- * cartes entières.
+ * pixel en pixel depuis celui qui est réglé — vingt-six essais au pire),
+ * ensuite seulement le pas entre piles. C'est l'ordre qui abîme le moins : une
+ * diagonale plus courte cache le nom des cartes du dessous, mais des piles qui
+ * se rapprochent cachent des cartes entières.
  *
  * **Ce que le groupement coûte au recouvrement, honnêtement.** Les cartes d'une
  * même pile gardent entre elles leur ordre d'entrée, donc leur ordre de
@@ -509,11 +637,17 @@ function pileStep(overlap: number): number {
  * et le coin haut-gauche de celle du dessous reste visible. Mais d'une pile à
  * l'autre, l'ordre de peinture reste celui de la pose et ne suit pas les piles :
  * la troisième Plaine peut être peinte après la première Île. Tant que les piles
- * ne se touchent pas — le cas normal —, cela ne se voit pas. Dès qu'elles se
- * chevauchent, c'est-à-dire quand le panneau a forcé le resserrement du pas
- * entre piles, le recouvrement entre voisines devient irrégulier : une pile
- * passe devant sa voisine de droite sur une carte et derrière sur la suivante.
- * `landSlots` ne peut rien y faire, puisque la peinture ne lui appartient pas.
+ * ne se touchent pas, cela ne se voit pas. Dès qu'elles se chevauchent, le
+ * recouvrement entre voisines devient irrégulier : une pile passe devant sa
+ * voisine de droite sur une carte et derrière sur la suivante. `landSlots` ne
+ * peut rien y faire, puisque la peinture ne lui appartient pas.
+ *
+ * **Et elles se chevauchent dès que l'espacement est négatif, défaut compris.**
+ * Le défaut vaut −25 % — il vient des rangées, où il ne veut rien dire d'autre
+ * que « serré » —, ce qui écarte les piles de −21 px. Le joueur qui tient à des
+ * piles franchement séparées remonte le curseur à zéro ; c'est le prix d'un
+ * seul espacement pour quatre formes, contre quatre réglages à faire survivre
+ * au stockage.
  */
 function pileSlots(
   piles: number[][],
@@ -525,31 +659,39 @@ function pileSlots(
   const availW = Math.max(0, bounds.width - 2 * MARGIN);
   const availH = Math.max(0, bounds.height - 2 * MARGIN);
 
+  /*
+   * L'écart peut être négatif, jamais au point d'inverser l'ordre des piles :
+   * `pileW` vaut au moins la largeur d'une carte (83) et l'écart au plus
+   * −50 px à l'espacement minimal, donc le pas d'une pile à l'autre reste
+   * franchement positif.
+   */
+  const gap = pileGap(safe.spacing);
+
   let step = 0;
   let perLine = 1;
   let lines = piles.length;
-  for (let candidate = pileStep(safe.overlap); candidate >= 0; candidate--) {
+  for (let candidate = safe.diagonal; candidate >= 0; candidate--) {
     const pileW = LAND_SLOT_W + (depth - 1) * candidate;
     const pileH = LAND_SLOT_H + (depth - 1) * candidate;
-    const fitting = Math.max(1, Math.floor((availW + PILE_GAP) / (pileW + PILE_GAP)));
+    const fitting = Math.max(1, Math.floor((availW + gap) / (pileW + gap)));
     const needed = Math.ceil(piles.length / fitting);
 
     step = candidate;
     perLine = fitting;
     lines = needed;
-    if (pileW <= availW && needed * pileH + (needed - 1) * PILE_GAP <= availH) break;
+    if (pileW <= availW && needed * pileH + (needed - 1) * gap <= availH) break;
   }
 
   const pileW = LAND_SLOT_W + (depth - 1) * step;
   const pileH = LAND_SLOT_H + (depth - 1) * step;
   const pitchX =
     perLine > 1
-      ? Math.min(pileW + PILE_GAP, Math.max(0, availW - pileW) / (perLine - 1))
-      : pileW + PILE_GAP;
+      ? Math.min(pileW + gap, Math.max(0, availW - pileW) / (perLine - 1))
+      : pileW + gap;
   const pitchY =
     lines > 1
-      ? Math.min(pileH + PILE_GAP, Math.max(0, availH - pileH) / (lines - 1))
-      : pileH + PILE_GAP;
+      ? Math.min(pileH + gap, Math.max(0, availH - pileH) / (lines - 1))
+      : pileH + gap;
 
   const { toLeft, upward } = reading(safe.anchor);
   // Même raison que pour la grille : la diagonale descend toujours, donc c'est
