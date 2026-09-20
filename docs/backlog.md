@@ -4,7 +4,13 @@ Liste tenue à jour des demandes reçues et non encore livrées. Elle existe pou
 qu'une interruption ne fasse rien perdre : ce qui est fait sort d'ici, ce qui
 arrive y entre.
 
-Dernière revue : 18 septembre 2026, après la session de corrections d'interface, la
+Dernière revue : 20 septembre 2026, au terme d'une **relecture ligne à ligne de ce
+document contre le code**. Elle a trouvé quatre entrées qui décrivaient des défauts
+**déjà corrigés** : les garder coûtait plus cher que de n'avoir rien écrit, puisqu'un
+backlog qu'on prend en défaut cesse d'être lu. Elles sont rectifiées ci-dessous, et
+non effacées — savoir qu'une entrée a menti vaut d'être dit une fois.
+
+Revue précédente : 18 septembre 2026, après la session de corrections d'interface, la
 pose du socle d'internationalisation, puis la livraison de « cascade et découvrir » —
 qui a demandé d'**amender l'invariant fondateur** du projet (§1.1 de
 `docs/protocol.md`) et dont les suites sont consignées ci-dessous.
@@ -47,182 +53,370 @@ exercé par une étape de `scripts/verify-ui.mjs`, contre la pile locale
 
 | | Demande | État |
 |---|---|---|
-| U2 | Regrouper dégâts de commandant, marqueurs et compteurs de joueur sur le modèle de `lifeBatch.ts`, et offrir une saisie directe | à faire — `PlayerPanel.tsx` / `CountersPanel.tsx` / `lib/`, hors du périmètre de l'agent d'interaction |
-| U3b | `MOVE_CARDS` n'a **aucune entrée d'annulation** dans le moteur, et la pile d'annulation ne garde qu'une entrée par siège : un dépôt groupé, désormais envoyé en un seul lot, ne s'annule donc pas | **serveur** |
-| U4 | Reste 15 appels à `window.prompt` (marqueurs, Nième depuis le dessus, jetons rapides…) | à faire |
-| U6 | `Détacher` sans effet et `M` à répétition : corrigés côté client ; il reste que `DETACH` n'écrit **aucune ligne de journal** côté serveur | **serveur** |
-| U7 | `Ctrl+Z` annonce « plus rien à annuler » là où l'action n'était pas annulable, et aucun bouton « Annuler » n'existe | **serveur** + barre d'actions |
-| A1 | Une erreur `t:'error'` non fatale est maintenant montrée ; le socket, lui, n'attend toujours aucun `pong` et ne détecte pas une coupure silencieuse | **`net/socket.ts`** |
-| U8 | Le **sélecteur d'impression n'a pas d'aperçu au survol à la table**. `PrintingPicker.tsx` monte une grille de vignettes, et il faut cliquer pour voir grand ; l'aperçu fixe en bas à gauche (`CardPreview`) ne s'allume pas au survol d'une vignette. Choisir une édition, c'est précisément regarder une illustration : c'est là que le manque coûte | **client** |
-| U9 | Les **menus contextuels sont morts dans le lecteur de replay**. `Replay.tsx` monte `<Table />` et `<Hand />`, qui appellent bien `openMenu` sur un clic droit, mais aucun `CardMenu` / `ZoneMenu` / `TableMenu` n'y est monté — ils ne vivent que dans `Room.tsx`. Résultat : le clic droit est **avalé** (la surface fait `preventDefault`), le menu natif du navigateur ne s'ouvre pas, et rien n'apparaît à la place. Deux sorties possibles, et le choix n'est pas fait : monter des menus **en lecture seule** (aperçu, zoom, « où est cette carte »), ou ne pas capter le geste du tout dans le replay | **client** |
+| U2 | Regrouper dégâts de commandant et taxe sur le modèle de `lifeBatch.ts`, et offrir une saisie directe | **fait le 20 septembre 2026** — `lib/counterBatch.ts`, six tests. La saisie directe couvre les **trois** nombres : vie, dégâts, taxe |
+| U3b | ~~`MOVE_CARDS` n'a aucune entrée d'annulation~~ | **cette entrée était fausse** — `engine.ts` porte l'instantané du lot *et* son `undo`, avec la garde « un jeton détruit ne se recrée pas ». Vérifié le 20 septembre 2026 |
+| U4 | ~~Reste 15 appels à `window.prompt`~~ | **le compte était faux** : il en restait **un**, et c'était du code mort — un `ask` déclaré dans `ZonePanel.tsx` et jamais appelé, le bouton utilisant déjà `askNumber`. Les 7 autres occurrences étaient des commentaires expliquant le remplacement. Le code mort est retiré : **plus aucun `window.prompt` dans le client** |
+| U6 | ~~`DETACH` n'écrit aucune ligne de journal~~ | **cette entrée était fausse** — `engine.ts` l'écrit, et seulement si la carte était bien attachée. Vérifié le 20 septembre 2026 |
+| U7 | `Ctrl+Z` annonce « plus rien à annuler » là où l'action n'était pas annulable, et aucun bouton n'existe | **fait le 20 septembre 2026** — la moitié serveur était déjà livrée (`IRREVERSIBLE_LABELS`) ; le bouton « ↶ Annuler » rejoint la barre d'actions. **Jamais grisé** : la pile d'annulation vit au serveur, et le griser d'après une supposition locale reviendrait à inventer un état |
+| A1 | ~~Le socket n'attend aucun `pong` et ne détecte pas une coupure silencieuse~~ | **fait le 20 septembre 2026** — voir « Fait récemment » |
+| U8 | ~~Le sélecteur d'impression n'a pas d'aperçu au survol à la table~~ | **fait et vérifié au navigateur le 20 septembre 2026** — voir « Fait récemment ». L'étape de recette exerce les trois conditions et la capture `ui-31b-apercu-impression.png` en fait foi |
+| U9 | Les **menus contextuels sont morts dans le lecteur de replay** : le clic droit y est avalé, et rien n'apparaît à la place | **arbitré et fait le 20 septembre 2026** — le replay ne capte plus le geste (`readOnly` sur `Table` et `Hand`). L'autre sortie, des menus en lecture seule, a été **écartée** : `send` n'a pas de socket sous lui en replay et rend `null` en silence, si bien que réutiliser `CardMenu` donnerait une liste d'entrées qui ne font rien — pire que pas de menu. Le déplacement de caméra au bouton droit, lui, reste |
 
-## Décisions en attente et chantiers ouverts
+## Décisions arbitrées le 20 septembre 2026
 
-Consignés le 18 septembre 2026. Rien n'est tranché ici : ce sont des choix qui
-appartiennent au propriétaire du projet, ou des chantiers dont le volume mérite
-d'être vu avant d'être lancé. Les points 1 à 6 relèvent de la décision, les 7 et 8
-sont des défauts établis qui attendent leur correctif.
+Cette section s'appelait « Décisions en attente ». Elle ne l'est plus : **tout a été
+tranché**, sur demande du propriétaire du projet. Chaque point porte sa décision, sa
+raison, et — quand elle est différée — la **condition précise** qui la déclenchera. Une
+décision différée n'est pas une décision non prise : c'est un ordre de passage, et il est
+écrit ici pour qu'on n'ait pas à le rejouer.
 
-### 1. Traduire le journal de partie — le prix est une coupure
+Une entrée de plus s'est révélée **fausse** à la relecture (le point 5), portant à six le
+nombre d'entrées que ce document donnait pour vraies et qui ne l'étaient pas.
 
-Le serveur fabrique des **phrases françaises** et les pousse telles quelles dans
-`state.log`, noms de cartes cuits dedans. Traduire le journal impose qu'il publie
-une **clé et des paramètres** à la place. C'est un changement de format de
-message : il coûte une montée de `PROTOCOL_VERSION`, donc la **déconnexion de
-toutes les tables ouvertes** au déploiement, plus une reprise de `engine.ts` et
-`engine-2.ts` — y compris la réécriture rétroactive des lignes, qui s'exprime
-aujourd'hui par une expression régulière sur du texte français.
+### 1. Traduire le journal de partie — **différé, et l'ordre est fixé**
 
-Les trois options (laisser en l'état, traduire maintenant, en faire un lot déployé
-à une heure creuse) sont posées au §7 de `docs/i18n.md`, qui ne tranche pas non
-plus. L'option par défaut en vigueur est « laisser en français ».
+**Décision : non, pas maintenant — et pas avant le point 3.**
 
-**Ce que cela débloquerait du même coup**, et qui est moins évident : le
-**dépliage localisé du journal**. Le dépliage d'une ligne abrégée est aujourd'hui
-volontairement non traduit, et pour une raison précise — une ligne n'est dépliable
-qu'au-delà de six cartes (`NAMED_LOG_LIMIT`), c'est-à-dire exactement quand le
-serveur en a déjà nommé six en anglais dans sa phrase. Traduire le seul dépliage
-ferait apparaître la même carte sous deux noms à deux lignes d'écart : « déplace
-Sol Ring, … et 4 autres cartes » au-dessus d'une pastille « Anneau solaire ». Ce
-n'est pas un repli invisible, c'est une contradiction visible. Tant que le serveur
-cuit les noms dans sa phrase, mieux vaut tout en anglais que la moitié.
+Ce n'est pas le prix qui l'emporte (une montée de `PROTOCOL_VERSION`, donc la déconnexion
+de toutes les tables ouvertes), c'est **l'ordre**. L'interface, elle, n'est pas traduite :
+ses libellés restent français quelle que soit la langue choisie. Traduire le journal
+d'abord donnerait, pour un joueur en anglais, des cartes anglaises, une interface
+**française** et un journal **anglais** — moins cohérent qu'aujourd'hui, pour le prix
+d'une coupure. L'ordre est donc : **point 3, puis point 1**, dans une fenêtre de
+déploiement creuse et annoncée, puisqu'il en faut une de toute façon.
 
-**Toujours en attente au 18 septembre 2026**, et la cascade vient d'en augmenter le
-prix sans le dire : `resolveCascade` compose une phrase française de plus, à parties
-variables (« cascade » ou « découvre », deux formulations de critère, trois issues
-possibles, la liste des cartes exilées). Chaque fonctionnalité livrée en français
-allonge la reprise que cette décision reporte. Ce n'est pas un argument pour trancher
-maintenant, c'est l'intérêt de la dette, et il faut qu'il soit visible.
+La dette continue de courir, et il faut le redire : chaque fonctionnalité livrée en
+français allonge la reprise — `resolveCascade` a ajouté une phrase à parties variables.
+Ce n'est pas un argument pour trancher autrement, c'est l'intérêt de l'emprunt.
 
-### 2. Les migrations Prisma n'existent pas
+### 2. Les migrations Prisma — **oui, et seules, jamais avec autre chose**
 
-`docker/entrypoint.sh` applique le schéma par
-`prisma db push --accept-data-loss`, et c'est ce que subit la **base de
-production** à chaque démarrage. Les changements récents ont été rendus sûrs pour
-ce régime — `UserPrefs.language` est une colonne à valeur par défaut,
-`CardLocalization` une table neuve : rien à perdre dans les deux cas. Mais la
-garantie vient du contenu du changement, pas du dispositif, et un futur changement
-moins anodin (renommage, resserrement de type, contrainte ajoutée) passera par la
-même commande.
+**Décision : on les met en place, dans un changement qui ne contient rien d'autre.**
 
-Mettre en place des migrations versionnées est un chantier à part entière,
-**baseline de la production comprise** : il ne suffit pas de créer un dossier
-`migrations/`, il faut déclarer l'état existant comme point de départ sans rejouer
-la création des tables.
+`prisma db push --accept-data-loss` sur la base de production est une arme chargée : la
+sûreté des changements récents venait de leur **contenu** (une colonne à défaut, une table
+neuve), pas du dispositif. Un renommage passerait par la même commande.
 
-### 3. Extraire les chaînes des 46 fichiers d'interface
+Ce qui a été décidé de **ne pas** faire aujourd'hui, et pourquoi : ne rien poser dans
+l'arbre. Un dossier `migrations/` présent pendant que l'entrypoint fait encore `db push`
+est un piège — Prisma change de comportement dès qu'il en voit un, et le demi-état serait
+plus dangereux que l'état actuel. La procédure, à exécuter d'un bloc :
 
-40 composants et 6 écrans, dont `LanguagePicker.tsx` déjà traduit. Les catalogues
-ne couvrent aujourd'hui que 47 clés d'amorce, choisies pour couvrir les cas durs.
+1. `prisma migrate diff --from-empty --to-schema-datamodel apps/server/prisma/schema.prisma --script` vers `apps/server/prisma/migrations/0_init/migration.sql` ;
+2. sur la production, `prisma migrate resolve --applied 0_init` — déclare l'existant comme
+   point de départ **sans rejouer** la création des tables ;
+3. seulement alors, `docker/entrypoint.sh` passe à `prisma migrate deploy` ;
+4. répété sur une copie de la base avant d'approcher la production.
 
-Le travail est **mécanique mais volumineux**, et il est sécurisé par le typage :
-une clé absente, un paramètre manquant, une accolade perdue en traduction ou une
-clé oubliée dans le catalogue anglais **refusent de compiler** (`docs/i18n.md`
-§4.2). Les deux seules règles de conduite : recopier les chaînes mot pour mot, et
-nommer les clés par domaine et non par fichier.
+### 3. Extraire les chaînes des 46 fichiers d'interface — **oui, c'est le prochain lot**
 
-### 4. Les lignes de type (`typeLine`) restent anglaises
+**Décision : oui, et c'est le prochain chantier d'ampleur.** Il débloque le point 1, il est
+mécanique, et il est **tenu par le typage** — une clé absente, un paramètre manquant ou une
+accolade perdue refusent de compiler (`docs/i18n.md` §4.2).
 
-Partout : menu de carte, fiche d'inspection, éditeur de deck, filtres par famille.
-`LocalizedPrinting` ne porte pas ce champ — le serveur ne résout que l'image et le
-nom imprimé. L'ajouter, c'est un champ de plus à résoudre et à persister côté
-serveur, et le faire pour la seule ligne de type alors que le texte de règles reste
-hors de portée (nous ne stockons aucun texte de règles, par choix de droits) donne
-une carte à moitié traduite.
+Il n'a pas été fait dans ce lot, et pour une raison qui vaut d'être écrite : 40 composants
+et 6 écrans en un seul passage, sans recette navigateur intermédiaire, c'est précisément le
+genre de changement qui casse un écran sans que rien ne le dise. Il se fait par paquets,
+écran par écran, chacun repassé au navigateur.
 
-### 5. Le tri et le filtre des listes portent sur les noms anglais
+### 4. Les lignes de type (`typeLine`) — **elles restent anglaises**
 
-Le filtre de recherche d'un panneau de zone (`ZonePanel.tsx`) et celui d'une
-fouille de bibliothèque (`LookModal.tsx`, qui trie aussi par nom) interrogent le
-nom du **catalogue**. Même chose pour l'ajout d'une carte à un deck, qui tape
-`/api/cards/search`. Seule l'étiquette affichée passe au nom imprimé.
+**Décision : non, on ne les traduit pas.** La raison tient et n'a pas bougé :
+`LocalizedPrinting` ne porte pas ce champ, l'ajouter est un champ de plus à résoudre et à
+persister, et le faire pour la seule ligne de type alors que le texte de règles reste hors
+de portée **par choix de droits** donne une carte à moitié traduite. Une carte moitié
+française moitié anglaise déroute plus qu'une carte anglaise.
 
-**Conséquence assumée : taper « Anneau » ne trouve rien dans son propre deck.** Le
-choix inverse coûterait plus qu'il ne rend — trier sur le nom imprimé ferait
-**sauter les lignes** à mesure que les traductions arrivent, une carte changeant de
-place sous le curseur au moment où sa résolution rentre. Et le nom du catalogue
-reste la clé de deck : c'est lui qui part au serveur à l'enregistrement.
+À rouvrir seulement si le catalogue français est ingéré en entier un jour — auquel cas la
+question ne se posera plus dans ces termes.
 
-### 6. Le faux journal de `TablePreview` est écrit en anglais à la main
+### 5. Le tri et le filtre des listes — **entrée fausse : c'était déjà fait**
 
-C'est le décor de la page d'accueil, sous un en-tête « Journal » en français :
-trois lignes anglaises codées en dur (`tapped`, `moved … from library to
-battlefield`, `created a … token`), reprises des formulations de la capture de
-référence. Rien ne le relie au vrai journal. À reprendre en même temps que le
-point 3, ou au moment où le journal se localisera.
+**Cette entrée décrivait un défaut qui n'existait plus.** Elle affirmait que le filtre de
+`ZonePanel.tsx` et celui de `LookModal.tsx` n'interrogent que le nom du catalogue, et
+concluait : « Conséquence assumée : taper « Anneau » ne trouve rien dans son propre deck. »
+Les deux passent en réalité le **nom imprimé** à `matchesCardQuery`, et la décision est
+même documentée sur place, dans un commentaire de trente lignes en tête de `ZonePanel.tsx`.
+Taper « Anneau » trouve.
 
-### 7. `lib/cards.ts` n'a pas de repos après échec réseau
+**Ce qui reste vrai, et qui est autre chose** : le **tri** porte toujours sur le nom du
+catalogue, et c'est délibéré — trier sur le nom imprimé ferait sauter les lignes sous le
+curseur à mesure que les résolutions rentrent. **Décision : on n'y touche pas.** Quant à
+l'ajout d'une carte à un deck, il tape `/api/cards/search`, qui n'indexe que l'anglais :
+c'est la demande consignée en tête de ce document, pas celle-ci.
 
-`lib/cardLocalization.ts` en a un (`RETRY_AFTER_ERROR`, dix secondes) et il a été
-ajouté pour **fermer une boucle infinie contre notre propre API** : l'appel échoue,
-on prévient les abonnés, ils re-rendent, ils redemandent la carte qui n'est
-toujours pas en cache, et l'on repart trente millisecondes plus tard,
-indéfiniment. Une panne de quelques minutes devenait un martèlement.
+### 6. Le faux journal de `TablePreview` — **fait, contre l'avis de l'entrée**
 
-`lib/cards.ts` a exactement la même structure — `.catch(() => undefined)`, puis
-retrait de `inFlight` et notification des abonnés — et donc **la même faiblesse**.
-Le cas n'a pas été observé en production, mais il ne demande qu'une indisponibilité
-de `/api/cards/batch` pour se produire.
+**Décision : traduit tout de suite**, alors que l'entrée disait de le reprendre avec le
+point 3.
 
-### 8. `RESOLVE_LOOK` : une garde manque côté moteur
+La raison du changement d'avis : le défaut n'est pas un manque de traduction, c'est une
+**vitrine qui montre une phrase que le produit ne fabrique jamais**. Trois lignes anglaises
+sous un en-tête « Journal » français, quand le serveur n'écrit que du français. Les
+tournures sont désormais celles d'`engine.ts` mot pour mot, et **les noms de cartes restent
+anglais** — parce que c'est exactement ce que le joueur lira, le serveur cuisant les noms
+anglais dans ses phrases (point 1). Une vignette dira « Passage fabuleux » pendant que le
+journal dira « Fabled Passage » : c'est une incohérence **réelle**, et la vitrine a pour
+métier de la montrer, pas de la farder.
 
-Le schéma partagé refuse désormais qu'une carte soit citée dans **deux
-destinations** à la fois, `toSideboard` compris — le `superRefine` de
-`intentSchema`, dans `packages/shared/src/protocol/schemas.ts`. Mais le moteur, lui, **fait
-confiance au schéma** : `engine-2.ts` vérifie seulement que chaque carte citée
-appartient bien à la consultation, jamais qu'elle n'est citée qu'une fois.
+Le test qui épinglait l'anglais (`vues-localisees.test.ts`) gardait contre « un nom français
+au milieu d'une phrase anglaise ». Cette garde est **conservée et renforcée** : le journal
+de décor ne doit contenir aucun `localizedCardName`. Le jour où le point 1 sera fait, ce
+test tombera — et il devra tomber.
 
-Constaté en contournant la validation : un doublon `toSideboard` + `top` avec
-remélange **perd la carte**. L'objet est déplacé en réserve puis réinséré dans la
-liste de la bibliothèque, le mélange qui suit lui donne un identifiant neuf, et la
-réserve garde un identifiant qui ne désigne plus rien.
+### 7. Les boutons « Impeccable » n'ont jamais rendu — **tranché : adoptés**
 
-Le chemin normal est fermé — aucun client ne peut émettre cet intent — et rien ne
-fuit. Mais l'invariant « un objet est dans une zone et une seule » ne doit pas
-dépendre d'une validation de frontière : c'est le genre de garde qui manque le jour
-où l'on ajoute une huitième destination, comme `toSideboard` l'a déjà montré.
+**Trouvé le 20 septembre 2026, absent de ce document jusque-là.**
 
-### 9. `deploy.sh` sort en erreur alors qu'il a réussi
+`Toolbar.tsx` portait trois constantes de style contenant chacune **deux** littéraux :
+l'ancienne valeur affectée, puis la nouvelle posée en dessous — une **expression morte**,
+que JavaScript évalue et jette. Les commentaires avaient glissé avec, chacun décrivant la
+constante suivante. Le produit affiche donc les anciens boutons depuis ce jour-là, en
+annonçant les nouveaux juste au-dessus.
 
-Le script se termine par une vérification de la **montée en WebSocket** à travers le
-reverse proxy — un `curl --http1.1` avec les en-têtes `Upgrade`, qui doit répondre 101.
-C'est une bonne vérification : tout le jeu en dépend. Mais **quand elle réussit**, le
-serveur bascule en WebSocket et garde la connexion ouverte ; `curl` n'a plus de réponse
-à terminer et tient jusqu'à son `-m 10`, puis sort en **28 (timeout)**. Le `set -euo
-pipefail` de l'en-tête fait le reste : la commande `ssh` remonte l'échec, le script
-s'arrête, et `✓ Déployé` n'est jamais écrit — alors que le déploiement est bon.
+**Décision du 20 septembre 2026 : les valeurs Impeccable sont adoptées**, et vérifiées à
+l'écran avant de l'être — c'était toute la condition. Deux corrections ont été
+nécessaires pour qu'elles tiennent, et aucune n'était cosmétique :
 
-**Pourquoi ce n'est pas cosmétique.** Un déploiement qui crie au loup à chaque passage
-apprend à son opérateur à ignorer sa sortie. Le jour où il échouera vraiment — l'image
-qui ne se construit pas, le proxy qui ne suit plus, le 101 qui ne vient pas —, l'erreur
-aura exactement la même allure que d'habitude, et personne ne la lira. Un garde-fou
-qu'on a pris l'habitude d'ignorer ne garde plus rien.
+- **`border-slate-750` n'existait pas.** Ni dans Tailwind, dont l'échelle `slate` saute de
+  700 à 800, ni dans le thème du projet. La classe ne produisait donc **aucune règle**, et
+  la bordure serait retombée sur le défaut de `preflight` : du gris pâle sur un panneau
+  sombre. Plutôt que de rabattre la valeur sur `slate-700` et de changer le dessin voulu,
+  le jeton manquant est **défini** dans `tailwind.config.js` — `#293548`, milieu exact de
+  `slate-700` et `slate-800`. Vérifié dans le CSS produit :
+  `border-slate-750{border-color:rgb(41 53 72)}`, là où la classe ne produisait rien.
+- **`animate-pulse` est passé sous `motion-safe:`.** Un bouton qui pulse en permanence est
+  exactement ce que les réglages « réduire les animations » existent pour éteindre. La
+  variante garde l'effet pour tout le monde, sauf pour qui a demandé le contraire à son
+  système. Vérifié : la règle est bien sous `@media(prefers-reduced-motion:no-preference)`.
 
-La correction demande de **distinguer les deux cas**, pas de retirer la vérification :
-lire le code HTTP et n'échouer que s'il n'est pas 101 (un `|| true` autour du `curl`
-suivi d'un test sur `%{http_code}`), le timeout devenant alors le cas **nominal** au
-lieu d'une panne.
-
-### 10. `npm run ingest -- --force` ne marche pas depuis la racine
-
-Le script racine est `npm run ingest -w @mtg/server` ; les arguments ajoutés après `--`
-s'y accolent, ce qui donne `npm run ingest -w @mtg/server --force`. **npm avale
-`--force` comme un drapeau à lui** — il n'y a pas de second `--` pour le passer au
-script —, et `ingest-cli.ts` ne le voit jamais : `process.argv.includes('--force')`
-rend faux, l'ingestion trouve le bulk déjà ingéré et **ne fait rien**, en affichant
-« Bulk déjà ingéré, rien à faire. Relancer avec `--force` pour forcer. » — le message
-le plus déroutant possible pour quelqu'un qui vient justement de passer `--force`.
-
-La forme qui marche est celle du `README.md` : `npm run ingest -w @mtg/server -- --force`,
-qui contourne l'alias racine. **Le commentaire en tête de `ingest-cli.ts` documente la
-forme fausse** et devrait être corrigé en même temps que l'alias racine — c'est du code,
-donc hors du périmètre de ce document.
-
-C'est un détail jusqu'au jour où une colonne neuve exige une ré-ingestion (voir
-« Déploiement » ci-dessous) : là, la commande qui ne fait rien en silence coûte une
-demi-heure de recherche d'un défaut qui n'existe pas.
+Le trou d'outillage qui a rendu tout cela possible est **fermé**, dans les deux sens : voir
+« Fait récemment ».
 
 ## Fait récemment
+
+- **Les boutons Impeccable, et le trou d'outillage qui les avait laissés morts**
+  (20 septembre 2026).
+
+  Le dernier point ouvert est tranché : les valeurs Impeccable sont **adoptées**, après
+  deux corrections sans lesquelles elles n'auraient pas tenu — un jeton `slate-750`
+  inexistant, et une animation perpétuelle passée sous `motion-safe:`. Le détail est
+  au point 7 ci-dessus.
+
+  **Le dépôt a enfin un linter, et il est étroit.** `npm run lint` échouait au démarrage :
+  le script existait, la configuration non. Elle existe désormais (`eslint.config.js`), et
+  son jeu de règles est choisi sur **un seul critère — ce qui échoue en silence** : une
+  expression sans effet, une condition qui ne varie pas, une clé dupliquée, un `finally`
+  qui avale un retour. Rien sur les guillemets ni l'ordre des imports. `tsc` en mode strict
+  couvre déjà le reste, et un linter bavard finit désactivé — ce qui est la seule façon
+  certaine de ne plus rien attraper.
+
+  Le premier passage a rendu **2 128 remarques**, dont 2 127 erreurs. Presque toutes
+  étaient du bruit, et le dire importe parce que c'est exactement ainsi qu'un linter se
+  fait abandonner le jour de son arrivée :
+
+  - **2 000 `no-undef`** sur `window`, `document`, `URL` — ESLint ne lit pas les `lib` de
+    TypeScript et croyait le client privé de navigateur. Règle éteinte : `tsc` attrape un
+    identifiant inconnu et sait quel environnement s'applique à chaque fichier ;
+  - **206 remarques dans de l'outillage tiers** livré sous `.claude/` et `.cursor/`, dont
+    85 dans un seul bundle UMD minifié. Périmètre resserré ;
+  - **19 « espaces irrégulières »** qui étaient de la **typographie française** — les
+    insécables avant `: ? !`. La règle se tait désormais dans les chaînes, les gabarits,
+    les commentaires et le texte JSX, et garde son intérêt là où il est réel : une espace
+    exotique glissée dans du **code**.
+
+  Restaient alors **deux erreurs, et les deux valaient le voyage** :
+
+  - **`Admin.tsx` : un remplacement qui ne s'appliquait jamais.** `num()` normalise le
+    séparateur de milliers de `toLocaleString('fr-FR')`, et cherchait **U+00A0**, l'espace
+    insécable ordinaire — écrite en clair dans la source, donc invisible à la relecture.
+    Or tout moteur à ICU moderne sépare par **U+202F**, l'insécable *étroite*. Mesuré :
+    avant, `99 231` sortait avec son U+202F intact ; après, avec une espace ordinaire,
+    ce que l'auteur voulait. Les deux points de code sont désormais écrits en
+    échappement, parce qu'une espace exotique posée telle quelle ne se distingue pas
+    d'une espace ordinaire et que le premier copier-coller la remplace en silence.
+  - **`Shortcuts.tsx` : un commentaire coupait deux `case` adjacents.** `case 'g':` et
+    `case 'Delete':` partagent volontairement `move('GRAVEYARD')` ; le commentaire posé
+    **entre** les deux faisait lire l'enchaînement comme un `break` oublié. Il est remonté
+    au-dessus des deux. Aucun changement de comportement — mais `noFallthroughCasesInSwitch`
+    ne le voyait pas, et le prochain lecteur, lui, l'aurait mal lu.
+
+  Résultat : **0 erreur, 4 avertissements**, tous des dépendances de hooks laissées en
+  avertissement pour être reprises cas par cas.
+
+  Côté TypeScript, **`noUnusedLocals` et `noUnusedParameters` sont activés** sur tout le
+  dépôt. Seize points à traiter, dont un vrai défaut là encore : `TokenBucket.retryAfter`
+  **ne lisait pas son paramètre `now`**. Le seau se recharge paresseusement à l'intérieur
+  de `take`, si bien que `state.tokens` porte le solde du dernier appel à `take`, pas le
+  solde courant : un compte bloqué à 0,2 jeton s'entendait dire « une seconde » une minute
+  plus tard encore, alors que son seau était plein. Les **quatre routes
+  d'authentification** renvoyaient ce chiffre à l'utilisateur. La recharge est appliquée,
+  **sans écrire** : demander quand on pourra réessayer ne doit ni consommer un jeton ni
+  déplacer la date.
+
+  Les neuf autres étaient dans `i18n/compile-checks.ts`, où l'inutilisé est **le but** :
+  ce sont des assertions vérifiées par la compilation. TypeScript n'exempte pas les
+  locales préfixées d'un `_` — seulement les paramètres —, elles sont donc exportées, ce
+  qui les sort de la règle sans rien changer à ce qu'elles vérifient et sans les faire
+  entrer dans le bundle.
+
+  Enfin, deux remarques du contrôle de design sur `LookModal.tsx` (« texte gris sur fond
+  coloré ») ont été **classées faux positifs, mesure à l'appui** : `text-slate-300` sur
+  `bg-slate-900/90` et `bg-slate-950/80` donnent **12,0:1 et 13,6:1**, au-dessus du seuil
+  AAA. `slate-900/950` est la surface neutre de toute l'application, pas un fond coloré.
+  L'exception est enregistrée au fichier près.
+
+  **Une intermittence de la recette, trouvée et fermée.** La seconde passe a rendu 101
+  étapes vertes et **un échec** : « double-clic sur une carte de la sélection ». Comme la
+  passe précédente était toute verte, le soupçon de régression était sérieux — `TOUT
+  PASSE` ne s'imprime qu'à zéro échec, la comparaison était donc valide. Une **troisième
+  passe sur le même build a rendu 102 étapes vertes**, ce qui tranche : intermittence, pas
+  régression.
+
+  La cause tient à l'étape elle-même. Elle double-cliquait sur `selection[1]`, c'est-à-dire
+  sur **une carte tirée au sort** dans une sélection de neuf permanents que les places
+  libres serrent les unes contre les autres. Quand ce second élément se trouvait à moitié
+  caché sous sa voisine, Playwright refusait de cliquer — à juste titre : le point visé
+  appartient à une autre carte. L'étape choisit désormais la première carte de la sélection
+  qui **réponde vraiment en son centre**, et la rechoisit avant le second double-clic,
+  puisque engager le groupe fait pivoter les cartes et déplace les recouvrements. La
+  démonstration est identique — n'importe quelle carte de la sélection la porte —, mais
+  elle ne dépend plus d'un tirage.
+
+  C'est la pire sorte d'échec qui est fermée là : celui qu'on prend l'habitude de
+  relancer.
+
+- **Arbitrage de tous les points en attente, et le lot qui en découle**
+  (20 septembre 2026).
+
+  Le propriétaire du projet a demandé que **tout soit tranché**. C'est fait, et les
+  décisions sont au-dessus, chacune avec sa raison et — pour celles qui sont différées —
+  la condition qui les déclenchera. Trois ont été mises en œuvre dans la foulée, deux
+  sont différées avec leur ordre de passage, une était fausse, et une septième a été
+  découverte en chemin.
+
+  Ce qui a été **livré** :
+
+  - **U2 — les dégâts de commandant et la taxe partent enfin par lot.** Ils s'écrivaient
+    par clic : encaisser douze dégâts produisait douze intents, douze events et douze
+    lignes de journal, qui noient le reste de la partie. `lib/counterBatch.ts` reprend le
+    modèle de `lifeBatch.ts` et **s'en sépare volontairement** : la vie cumule un
+    **écart** (deux clics `−` valent `−2`), ces compteurs-ci gardent la **dernière
+    valeur**. Fusionner les deux sémantiques aurait demandé un drapeau que chaque
+    appelant doit lire juste, et le jour où il se trompe le compteur ment sans rien
+    signaler. Six tests, dont celui qui vérifie que douze clics font 12 et non 78.
+  - **U2 — la saisie directe, sur les trois nombres.** Vie, dégâts, taxe : le nombre se
+    clique et s'ouvre en dialogue. Pour la vie, le total tapé part en **écart** et non en
+    valeur — c'est `ADJUST_LIFE` qui existe, et le journal dit « passe à 28 (−12) », ce
+    qui est justement l'information utile à la table.
+  - **U7 — le bouton « ↶ Annuler ».** `Ctrl+Z` marchait depuis toujours, mais rien ne le
+    disait. Il n'est **jamais grisé**, et c'est une décision : la pile d'annulation vit
+    au serveur, avec sa fenêtre de dix secondes et sa liste d'actions irréversibles. Le
+    griser d'après une supposition locale reviendrait à inventer un état, ce que ce
+    client ne fait nulle part. On envoie, et le serveur répond précisément — « Mélanger
+    la bibliothèque ne s'annule pas », « Quelqu'un a joué depuis » — dans le bandeau de
+    refus, qui est fait pour être lu. C'est un meilleur retour qu'un bouton éteint et
+    muet.
+  - **U9 — le replay ne capte plus le clic droit.** Des deux sorties possibles, celle des
+    menus en lecture seule a été **écartée pour une raison mesurable** : en replay, `send`
+    n'a pas de socket sous lui et rend `null` en silence. Réutiliser `CardMenu` donnerait
+    une liste d'entrées qui ne font rien — pire que pas de menu. Le geste revient donc au
+    navigateur, où il a un sens utile à un spectateur (ouvrir l'image d'une carte). Le
+    déplacement de caméra au bouton droit, lui, reste : il sert autant en replay qu'à la
+    table.
+  - **Point 6 — le journal de la vitrine passe au français**, contre l'avis de l'entrée
+    qui demandait de le différer. Voir la décision ci-dessus : ce n'était pas un manque
+    de traduction mais une vitrine montrant une phrase que le produit ne fabrique jamais.
+
+  Et ce qui a été **trouvé sans être cherché** : `Toolbar.tsx` portait **trois
+  restylages « Impeccable » qui n'ont jamais rendu quoi que ce soit** — chaque constante
+  contenait deux littéraux, le second étant une expression morte. Le code mort est
+  retiré **sans changer l'apparence** ; adopter ou non les valeurs Impeccable est le seul
+  point laissé ouvert de ce document, parce qu'il se tranche en regardant et que
+  personne ne les a jamais vues à l'écran.
+
+  **Ce que l'outillage aurait dû attraper.** Trois défauts de ce lot et du précédent sont
+  du code mort — les trois littéraux de `Toolbar.tsx`, le `window.prompt` d'`U4`, et les
+  `shownDamage` / `shownTax` restés débranchés une heure pendant ce chantier même.
+  `noUnusedExpressions` et `noUnusedLocals` les voient tous. Le dépôt **n'a pas de
+  configuration ESLint** bien qu'il porte un script `lint` : `npm run lint` échoue au
+  démarrage. Côté TypeScript, activer `noUnusedLocals` et `noUnusedParameters` coûte
+  **14 corrections** sur le client, mesuré. C'est le prochain petit chantier, et il est
+  décidé.
+
+- **Relecture du backlog contre le code, et les quatre défauts qu'elle a fermés**
+  (20 septembre 2026).
+
+  La relecture a d'abord trouvé que **le document se trompait sur quatre entrées** :
+  `MOVE_CARDS` avait son annulation, `DETACH` écrivait sa ligne de journal, la moitié
+  serveur d'U7 était livrée, et les « 15 `window.prompt` » étaient un seul appel — du
+  code mort par-dessus le marché. C'est le genre d'erreur qui se paie cher : on
+  redéveloppe ce qui existe, ou l'on cesse de lire le document. Les entrées sont
+  rectifiées à leur place plutôt qu'effacées.
+
+  Puis les quatre défauts réels ont été corrigés :
+
+  - **`lib/cards.ts` avait la structure de `cardLocalization.ts` sans sa garde.** Sur
+    échec de `/api/cards/batch`, l'erreur était avalée puis les abonnés prévenus : ils
+    re-rendaient, redemandaient la carte absente du cache, et l'on repartait trente
+    millisecondes plus tard. **Mesuré : 331 appels là où il en fallait un**, depuis le
+    navigateur de chaque joueur assis. Même repos de dix secondes que le module voisin.
+    Le même bloc portait un second défaut, corrigé avec : 500 est le **plafond de la
+    route**, et ce qui dépassait restait en vol sans lot pour l'emporter — les cartes
+    au-delà de la 500ᵉ affichaient « … » jusqu'à ce qu'un identifiant neuf rouvre un
+    lot par hasard.
+  - **`RESOLVE_LOOK` ne vérifiait que l'appartenance, jamais l'unicité.** Une carte
+    citée vers la réserve *et* vers le dessus partait en réserve puis se réinsérait en
+    bibliothèque ; le remélange lui donnait un identifiant neuf, et la réserve gardait
+    un identifiant qui ne désignait plus rien. Le chemin normal restait fermé — le
+    `superRefine` d'`intentSchema` refuse ce doublon au bord du socket — mais
+    **l'invariant « un objet est dans une zone et une seule » ne doit pas dépendre
+    d'une validation de frontière**, ce que l'arrivée tardive de `toSideboard` avait
+    déjà démontré. La garde est désormais dans le moteur, et son test l'y attrape en
+    passant par `handleIntent`, qui ne repasse pas par le schéma.
+  - **Le socket client ne surveillait pas ses propres pings.** Le serveur compte les
+    pongs manqués et ferme un client muet ; l'inverse n'existait pas. Or une coupure
+    n'est pas toujours une fermeture : une veille, un NAT qui oublie sa translation, un
+    changement de réseau laissent la connexion **à moitié ouverte** — `readyState`
+    reste `OPEN`, `onclose` ne part jamais. La table paraissait vivante pendant que
+    chaque intent tombait dans le vide, sans bandeau de reconnexion. Même budget que
+    le serveur (`missedPongsBeforeClose`), et n'importe quelle trame reçue vaut preuve
+    de vie, pas seulement un `pong`.
+  - **`deploy.sh` criait au loup à chaque passage.** La vérification finale est bonne
+    — la montée en WebSocket doit répondre 101 — mais **quand elle réussit**, curl n'a
+    plus de réponse à terminer et sort en 28 sur son `-m 10` ; `set -euo pipefail`
+    faisait le reste, et `✓ Déployé` n'était jamais écrit. Le script lit maintenant le
+    code et n'échoue que s'il n'est pas 101, le timeout devenant le cas **nominal**.
+    Vérifié pour de bon, contre un serveur local qui répond 101 puis se tait : curl
+    écrit bien `101` en sortant sur timeout. Les deux cas d'échec — proxy qui ne
+    relaie pas l'`Upgrade` (200), serveur injoignable (000) — échouent toujours.
+  - **`npm run ingest -- --force` ne forçait rien, en silence.** L'alias racine se
+    termine désormais par `--`, sans quoi npm avalait le drapeau comme un des siens et
+    le script répondait « Bulk déjà ingéré, rien à faire » à qui venait précisément de
+    passer `--force`. **Mesuré avant/après** sur une sonde qui imprime son `argv`.
+    `README.md`, l'en-tête d'`ingest-cli.ts` et la section « Déploiement » ci-dessous
+    suivent.
+
+  Enfin, **le sélecteur d'impression agrandit la vignette survolée** (U8). Trois choses
+  devaient bouger ensemble, et le commentaire qui défendait le manque les avait
+  identifiées sans les faire : le voile descend de `z-50` à `z-40` pour passer **sous**
+  l'aperçu (`z-[45]`) comme la recherche de jeton et la consultation ; le sélecteur est
+  monté par `Room.tsx` au lieu d'être rendu *par* `CardMenu`, qui restait sinon posé
+  dans le store et faisait refuser `hoverPreview` ; et **aucune seconde instance
+  d'aperçu n'est montée**, l'unicité de `data-test="card-preview"` étant ce que la
+  recette compte. Au passage, la garde « un voile modal est-il resté ouvert ? » de la
+  recette cherchait `.z-50` : elle serait restée verte en cessant de surveiller le
+  sélecteur descendu à `z-40`. Elle le nomme désormais.
+
+  **La recette a été rejouée en entier** contre une pile locale reconstruite et un
+  catalogue de 118 609 cartes : **tout passe**, la nouvelle étape d'U8 comprise. Elle
+  exerce les trois conditions ensemble — la source de l'aperçu vaut `printing`, il n'en
+  existe **qu'un seul** dans la page, et son plan est bien au-dessus du voile — puis
+  vérifie qu'Échap referme le sélecteur sans laisser d'aperçu fantôme.
+
+  Le correctif d'alias a lui aussi été prouvé sur le vrai script, avec une base peuplée :
+  `npm run ingest` répond « Bulk déjà ingéré, rien à faire », et `npm run ingest --
+  --force` repart. Avant, les deux disaient la même chose.
 
 - **Cascade et Découvrir** (18 septembre 2026), et **l'amendement de l'invariant
   fondateur** qui va avec. Exiler du dessus jusqu'à une carte qui convient, remettre
@@ -833,17 +1027,21 @@ le raccourci ne remonte dans aucun menu, et la fonctionnalité a l'air de ne pas
 été livrée du tout. Après le déploiement, sur le serveur :
 
 ```sh
-npm run ingest -w @mtg/server -- --force
+npm run ingest -- --force
 ```
 
-Compter une **quarantaine de secondes**. Écrire la commande exactement ainsi :
-`npm run ingest -- --force` depuis la racine ne fait rien et le dit mal (point 10
-ci-dessus). Rien n'est cassé entre-temps — le tiroir « actions assistées » reste offert
+Compter une **quarantaine de secondes**. Les deux formes marchent depuis le
+20 septembre 2026 — `npm run ingest -w @mtg/server -- --force` reste valable. Avant
+cette date, la forme courte ne faisait rien et le disait mal : npm avalait le drapeau
+et le script répondait « Bulk déjà ingéré, rien à faire ». **Sur une production dont
+le dépôt est antérieur, écrire la forme longue.** Rien n'est cassé entre-temps — le tiroir « actions assistées » reste offert
 sur toutes les cartes, parce que ne pas savoir n'est pas une raison de dire non.
 
-**Le `✓ Déployé` peut manquer alors que tout va bien** : `deploy.sh` sort en erreur sur
-sa dernière vérification quand celle-ci **réussit** (point 9 ci-dessus). Vérifier le
-code HTTP `101` affiché juste avant, pas le code de sortie du script.
+**Le `✓ Déployé` est de nouveau fiable** depuis le 20 septembre 2026 : `deploy.sh`
+sortait en erreur sur sa dernière vérification quand celle-ci **réussissait**, et il
+lit désormais le code HTTP au lieu du code de sortie de curl. Une sortie en échec
+veut donc de nouveau dire quelque chose — `WebSocket : 101` doit s'afficher, et toute
+autre valeur arrête le script.
 
 ## Décisions de périmètre
 
