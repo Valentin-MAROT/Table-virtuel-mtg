@@ -93,6 +93,13 @@ function thaw(frozen: Frozen): void {
 interface ReplayStore {
   head: ReplayHead | null;
   steps: ReplayStep[];
+  /**
+   * Les fins d'action, en nombre de pas appliqués — voir `actionEnds`.
+   *
+   * C'est ce que comptent les boutons du transport et l'indicateur de position :
+   * le joueur raisonne en gestes, pas en émissions de protocole.
+   */
+  actions: number[];
   /** Nombre de pas appliqués. 0 = le point zéro, rien n'a encore été joué. */
   cursor: number;
   loading: boolean;
@@ -110,6 +117,44 @@ interface ReplayStore {
   stepBack: () => void;
   setPlaying: (playing: boolean) => void;
   reset: () => void;
+}
+
+/**
+ * Les **fins d'action**, en nombre de pas appliqués.
+ *
+ * Un pas de replay est une **émission**, pas une action. Un seul déplacement de
+ * carte en produit plusieurs : le `CARD_MOVED` qu'on veut voir, puis les
+ * `ZONE_COUNT` des deux zones touchées, puis au besoin les `CARD_HIDDEN` des
+ * sièges qui ne doivent pas connaître l'identifiant. Mesuré sur une séquence
+ * courte : **16 `ZONE_COUNT` sur 36 pas**, soit près de la moitié du flux, et
+ * aucun ne porte de ligne de journal.
+ *
+ * Avancer d'un pas tombait donc, une fois sur deux, sur une écriture de
+ * comptabilité : on cliquait « suivant » et rien ne bougeait. Ce n'est pas une
+ * imperfection d'affichage, c'est un lecteur qui fait perdre confiance — on ne
+ * sait plus si le replay est bloqué ou si la partie était calme.
+ *
+ * **On ne retire rien de l'enregistrement pour autant**, et c'est délibéré :
+ * `ZONE_COUNT` fait autorité pour les zones cachées (`store/game.ts`), où
+ * aucune carte n'est publiée pour être comptée. L'amputer donnerait un replay
+ * aux compteurs faux, ce qui est pire qu'un replay bavard. Ce sont les
+ * **commandes** du lecteur qui avancent par action ; l'état, lui, continue
+ * d'être reconstruit pas à pas, sans rien sauter.
+ *
+ * Le regroupement se fait sur l'horodatage et l'auteur, parce que `Room.commit`
+ * calcule un seul `at` pour toutes les émissions d'un même intent. Deux actions
+ * tombées dans la même milliseconde pour le même siège fusionneraient : c'est
+ * rare, et le pire cas est d'avancer de deux actions d'un coup — jamais de
+ * s'arrêter sur rien, qui est le défaut qu'on ferme ici.
+ */
+export function actionEnds(steps: ReplayStep[]): number[] {
+  const ends: number[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const suivant = steps[i + 1];
+    const ici = steps[i]!;
+    if (!suivant || suivant.at !== ici.at || suivant.actor !== ici.actor) ends.push(i + 1);
+  }
+  return ends;
 }
 
 /** Les points de reprise vivent hors du store : ce ne sont pas des données de rendu. */
@@ -163,6 +208,7 @@ export function cursorForSeq(steps: ReplayStep[], seq: number | null | undefined
 export const useReplay = create<ReplayStore>((set, get) => ({
   head: null,
   steps: [],
+  actions: [],
   cursor: 0,
   loading: false,
   error: null,
@@ -192,7 +238,7 @@ export const useReplay = create<ReplayStore>((set, get) => ({
       }
       // Les points de reprise décrivent l'ancien flux : ils n'ont plus cours.
       checkpoints = [];
-      set({ head, steps, cursor: 0, loading: false });
+      set({ head, steps, actions: actionEnds(steps), cursor: 0, loading: false });
       bootstrap(head);
       const target = cursorForSeq(steps, atSeq);
       if (target > 0) get().seek(target);
@@ -241,11 +287,18 @@ export const useReplay = create<ReplayStore>((set, get) => ({
   },
 
   stepForward() {
-    get().seek(get().cursor + 1);
+    const { actions, cursor, steps } = get();
+    // La première fin d'action strictement au-delà de là où l'on est. Le repli
+    // sur `cursor + 1` ne sert qu'au cas dégénéré d'un flux sans frontière.
+    get().seek(actions.find((fin) => fin > cursor) ?? Math.min(cursor + 1, steps.length));
   },
 
   stepBack() {
-    get().seek(get().cursor - 1);
+    const { actions, cursor } = get();
+    // La dernière fin d'action strictement en deçà : reculer d'une action, donc
+    // se replacer juste avant celle qu'on vient de voir.
+    const avant = [...actions].reverse().find((fin) => fin < cursor);
+    get().seek(avant ?? 0);
   },
 
   setPlaying(playing) {
@@ -254,7 +307,7 @@ export const useReplay = create<ReplayStore>((set, get) => ({
 
   reset() {
     checkpoints = [];
-    set({ head: null, steps: [], cursor: 0, loading: false, error: null, playing: false });
+    set({ head: null, steps: [], actions: [], cursor: 0, loading: false, error: null, playing: false });
   },
 }));
 

@@ -79,7 +79,17 @@ export function ReplayPage(): React.ReactElement {
   const loading = useReplay((s) => s.loading);
   const error = useReplay((s) => s.error);
   const cursor = useReplay((s) => s.cursor);
-  const total = useReplay((s) => s.steps.length);
+  /*
+   * **Le compteur parle en actions, pas en émissions de protocole.**
+   *
+   * « 47 / 312 » ne disait rien à personne : les 312 comptaient les `ZONE_COUNT`
+   * et les `CARD_HIDDEN`, dont près de la moitié du flux est faite. Un joueur
+   * qui veut retrouver un moment de sa partie raisonne en gestes.
+   */
+  const actions = useReplay((s) => s.actions);
+  const total = actions.length;
+  /** Combien d'actions sont derrière nous, pour l'affichage. */
+  const done = actions.filter((fin) => fin <= cursor).length;
   const seek = useReplay((s) => s.seek);
   const playing = useReplay((s) => s.playing);
   const setPlaying = useReplay((s) => s.setPlaying);
@@ -167,7 +177,11 @@ export function ReplayPage(): React.ReactElement {
         state.setPlaying(false);
         return;
       }
-      state.seek(state.cursor + 1);
+      // Par **action** et non par émission : sinon la lecture automatique
+      // passait la moitié de son temps sur des écritures de comptabilité, à
+      // 700 ms chacune, et une partie paraissait deux fois plus lente qu'elle
+      // ne l'avait été. Voir `actionEnds`.
+      state.stepForward();
     }, PLAY_INTERVAL_MS);
     return () => {
       if (timer.current !== null) window.clearInterval(timer.current);
@@ -257,10 +271,10 @@ export function ReplayPage(): React.ReactElement {
       ) : null}
 
       <div className="sr-only" aria-live="polite">
-        {t('replay.position', { current: cursor, total })}
+        {t('replay.position', { current: done, total })}
       </div>
       <input
-        aria-label={t('replay.position', { current: cursor, total })}
+        aria-label={t('replay.position', { current: done, total })}
         className="absolute bottom-[4.5rem] left-1/2 z-40 w-[min(46rem,calc(100vw-2rem))] -translate-x-1/2"
         type="range"
         min={0}
@@ -286,10 +300,24 @@ function ReplayBar({
   const t = useT();
   const head = useReplay((s) => s.head);
   const cursor = useReplay((s) => s.cursor);
-  const total = useReplay((s) => s.steps.length);
+  /*
+   * **Le compteur parle en actions, pas en émissions de protocole.**
+   *
+   * « 47 / 312 » ne disait rien à personne : les 312 comptaient les `ZONE_COUNT`
+   * et les `CARD_HIDDEN`, dont près de la moitié du flux est faite. Un joueur
+   * qui veut retrouver un moment de sa partie raisonne en gestes.
+   */
+  const actions = useReplay((s) => s.actions);
+  const total = actions.length;
+  /** Combien d'actions sont derrière nous, pour l'affichage. */
+  const done = actions.filter((fin) => fin <= cursor).length;
   const seek = useReplay((s) => s.seek);
   const playing = useReplay((s) => s.playing);
   const setPlaying = useReplay((s) => s.setPlaying);
+  /** Le bout du flux, en pas : « dernier » borne le flux, pas le compte d'actions. */
+  const frames = useReplay((s) => s.steps.length);
+  const stepForward = useReplay((s) => s.stepForward);
+  const stepBack = useReplay((s) => s.stepBack);
 
   return (
     /* `pl-[19rem]` en grand écran, et ce n'est pas de l'esthétique : les
@@ -301,20 +329,34 @@ function ReplayBar({
       <button type="button" className="ink-button px-2.5 py-1" onClick={() => seek(0)}>
         {t('replay.first')}
       </button>
-      <button type="button" className="ink-button px-2.5 py-1" onClick={() => { setPlaying(false); seek(cursor - 1); }}>
+      {/*
+        Précédent et suivant sautent une **action** entière, pas une émission :
+        c'est `stepForward`/`stepBack` qui portent la règle, et non un `cursor ±
+        1` recopié ici. Deux endroits qui comptent les pas autrement finiraient
+        par ne plus désigner le même instant.
+      */}
+      <button
+        type="button"
+        className="ink-button px-2.5 py-1"
+        onClick={() => { setPlaying(false); stepBack(); }}
+      >
         ◀ {t('replay.previous')}
       </button>
       <button type="button" className="ink-button px-2.5 py-1" onClick={() => setPlaying(!playing)}>
         {playing ? t('replay.pause') : t('replay.play')}
       </button>
-      <button type="button" className="ink-button px-2.5 py-1" onClick={() => { setPlaying(false); seek(cursor + 1); }}>
+      <button
+        type="button"
+        className="ink-button px-2.5 py-1"
+        onClick={() => { setPlaying(false); stepForward(); }}
+      >
         {t('replay.next')} ▶
       </button>
-      <button type="button" className="ink-button px-2.5 py-1" onClick={() => { setPlaying(false); seek(total); }}>
+      <button type="button" className="ink-button px-2.5 py-1" onClick={() => { setPlaying(false); seek(frames); }}>
         {t('replay.last')}
       </button>
 
-      <span className="tabular-nums">{t('replay.position', { current: cursor, total })}</span>
+      <span className="tabular-nums">{t('replay.position', { current: done, total })}</span>
 
       <label className="ml-auto flex items-center gap-2">
         <span>{t('replay.viewLabel')}</span>
