@@ -1159,6 +1159,11 @@ interface RollDie    { type: 'ROLL_DIE'; sides: number; count?: number; }  // si
 interface FlipCoin   { type: 'FLIP_COIN'; count?: number; }
 interface EndTurn    { type: 'END_TURN'; }
 interface SetPhase   { type: 'SET_PHASE'; phase: PhaseName; }              // purement déclaratif
+// Flèches : déclaratives (§1.1), elles montrent sans rien résoudre.
+type ArrowKind = 'TARGET' | 'ATTACK' | 'BLOCK';
+type ArrowEnd  = { card: ObjectId } | { seat: SeatId };
+interface AddArrows   { type: 'ADD_ARROWS'; kind: ArrowKind; from: ObjectId[]; to: ArrowEnd; }  // from : 1..64
+interface ClearArrows { type: 'CLEAR_ARROWS'; }                              // efface ses propres flèches
 interface Concede    { type: 'CONCEDE'; }
 interface ChatBubble { type: 'CHAT_BUBBLE'; text: string; }                // ≤ 240 caractères
 interface Cursor     { type: 'CURSOR'; x: number; y: number; holding?: ObjectId; }  // non journalisé
@@ -1187,6 +1192,17 @@ Une coordonnée de monde se rend alors correctement sous n'importe quel cadrage.
 
 Les coordonnées de dépôt sont calculées relativement au panneau survolé, ce qui les
 rend indépendantes du cadrage par construction.
+
+
+**Flèches (`ADD_ARROWS`, `CLEAR_ARROWS`).** Une flèche part d'une carte que l'on
+contrôle, sur le champ de bataille ou la pile, et vise une carte de ces zones
+ou un siège (`BLOCK` vise toujours une carte ; `ATTACK` jamais soi-même). Une
+attaque ou un blocage **remplace** la flèche de même nature déjà partie de la
+même carte. Le serveur efface, par `ARROWS_REMOVED`, toute flèche dont une
+extrémité quitte ces zones (après chaque intent) et toutes au `TURN_ENDED`.
+L'instantané porte les flèches en cours (`arrows`). Le journal ne nomme une
+carte visée que si la table a le droit de la lire (`publicName`). Plafond :
+96 flèches sur la table. Aucune n'est annulable par `UNDO_LAST`.
 
 ### 6.8 Gestion de partie
 
@@ -1302,6 +1318,8 @@ type Event =
   | { type: 'COIN_FLIPPED'; seat: SeatId; results: ('HEADS' | 'TAILS')[] }
   | { type: 'TURN_ENDED'; seat: SeatId; nextSeat: SeatId; turnNumber: number }
   | { type: 'PHASE_CHANGED'; phase: PhaseName }
+  | { type: 'ARROWS_ADDED'; arrows: Arrow[] }   // Arrow = { id, seat, kind, from, to }
+  | { type: 'ARROWS_REMOVED'; ids: ObjectId[] }
   | { type: 'GAME_STARTED'; startingSeat: SeatId; snapshotIds: Record<SeatId, string> }
   | { type: 'GAME_ENDED'; reason: 'CONCEDE' | 'HOST' | 'TIMEOUT'; winners: SeatId[] }
   | { type: 'CHAT'; seat: SeatId; text: string }

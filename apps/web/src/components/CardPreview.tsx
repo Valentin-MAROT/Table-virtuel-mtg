@@ -149,6 +149,13 @@ export function CardPreview(): React.ReactElement | null {
    * plus : survoler suffit, partout où l'identité est connue.
    */
   const twoFaces = !!scryfallId && isDoubleFaced(cardMeta(scryfallId));
+  /*
+   * Deux faces côte à côte, à 80 % de la hauteur d'une seule : assez grand
+   * pour lire les deux textes, sans que le panneau mange la moitié de l'écran.
+   * Il change de coin plus souvent qu'un aperçu simple — il est plus large, et
+   * ne doit jamais couvrir la carte survolée (`previewPlacement.ts`).
+   */
+  const faceHeight = twoFaces ? Math.round(size.height * 0.8) : size.height;
 
   /*
    * Le coin se choisit après le rendu, sur le DOM réel : le rectangle de la
@@ -191,10 +198,10 @@ export function CardPreview(): React.ReactElement | null {
     height: boxHeight,
     imageHeight,
   } = previewBox({
-    imageHeight: size.height,
+    imageHeight: faceHeight,
     // Deux faces : deux cartes et l'écart qui les sépare (`FACE_GAP`).
     ratio: twoFaces
-      ? (CARD_WIDTH / CARD_HEIGHT) * 2 + FACE_GAP / size.height
+      ? (CARD_WIDTH / CARD_HEIGHT) * 2 + FACE_GAP / faceHeight
       : CARD_WIDTH / CARD_HEIGHT,
     bandsHeight,
     viewport,

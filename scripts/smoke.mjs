@@ -92,7 +92,7 @@ try {
   await step('scry via le menu Actions', async () => {
     await page.getByRole('button', { name: /Actions/ }).click();
     await page.getByRole('button', { name: 'Scry 1' }).click();
-    await page.getByText('Consultation —').waitFor({ timeout: 8000 });
+    await page.locator('[data-test="look-modal"]').waitFor({ timeout: 8000 });
   });
   await page.screenshot({ path: `${OUT}/mtg-scry.png` });
 

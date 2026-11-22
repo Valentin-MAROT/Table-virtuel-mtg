@@ -711,7 +711,8 @@ try {
   await step('scry via le menu Actions', async () => {
     await page.getByRole('button', { name: /Actions/ }).click();
     await page.getByRole('button', { name: 'Scry 1' }).click();
-    await page.getByText('Consultation —').waitFor({ timeout: 8000 });
+    // Le titre dit désormais « Regard 1 » : on attend la modale, pas un libellé.
+    await page.locator('[data-test="look-modal"]').waitFor({ timeout: 8000 });
   });
   await page.screenshot({ path: `${OUT}/ui-07-scry.png` });
 
@@ -1138,7 +1139,24 @@ async function findDoubleFaced() {
     await page.getByRole('button', { name: 'Voir toute la table' }).click();
     await page.waitForTimeout(300);
     await refillHand(3);
-    const card = page.locator('[data-zone$="|HAND"] img[src*="scryfall"]').first();
+    /*
+     * Une carte **à une face**. L'aperçu d'une carte double face montre ses deux
+     * faces côte à côte : bien plus large, il change de coin dès qu'il
+     * couvrirait la carte survolée, ce qui est voulu et n'est pas ce qu'on
+     * éprouve ici. On survole donc jusqu'à tomber sur un aperçu simple.
+     */
+    const ids = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-zone$="|HAND"] [data-card]')].map((el) => el.dataset.card),
+    );
+    const simples = [];
+    for (const id of ids) {
+      await hover(page.locator(`[data-zone$="|HAND"] [data-card="${id}"] img[src*="scryfall"]`).first());
+      await page.locator('[data-test="card-preview"]').waitFor({ timeout: 5000 });
+      if ((await page.locator('[data-test="card-preview-other-face"]').count()) === 0) simples.push(id);
+    }
+    if (simples.length === 0) throw new Error('aucune carte à une face en main');
+    await unhover();
+    const card = page.locator(`[data-zone$="|HAND"] [data-card="${simples[0]}"] img[src*="scryfall"]`).first();
     await hover(card);
 
     const preview = page.locator('[data-test="card-preview"]');
@@ -1171,11 +1189,12 @@ async function findDoubleFaced() {
      * rechercher à chaque fois. Ce qu'on vérifie est donc l'inverse de ce que
      * cette étape vérifiait : qu'il ne bouge pas.
      */
-    const boxes = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-zone$="|HAND"] [data-card]')].map((el) => {
+    const boxes = await page.evaluate((keep) =>
+      [...document.querySelectorAll('[data-zone$="|HAND"] [data-card]')].filter((el) => keep.includes(el.dataset.card)).map((el) => {
         const r = el.getBoundingClientRect();
         return { id: el.dataset.card, cx: r.left + r.width / 2, x: r.left, y: r.top, w: r.width, h: r.height };
       }),
+      simples,
     );
     const other = boxes.at(-1);
     if (other && boxes.length > 1) {
@@ -1306,7 +1325,9 @@ async function findDoubleFaced() {
     const box = await myPermanent().boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
     await page.locator('[data-test="card-menu"]').waitFor({ timeout: 5000 });
-    await page.locator('[data-test="card-menu"]').getByText('Changer d’impression').click();
+    // Rangée dans le tiroir « Plus » depuis l'élagage du menu.
+    await page.locator('[data-test="card-menu"]').getByRole('button', { name: /^Plus/ }).hover();
+    await page.locator('[data-test="card-submenu"]').getByText('Changer d’impression').click();
 
     const picker = page.locator('[data-test="printing-picker"]');
     await picker.waitFor({ timeout: 5000 });
@@ -2980,10 +3001,15 @@ async function findDoubleFaced() {
       () => [...window.__mtg.getState().cards.values()].find((c) => c.zone.kind === 'BATTLEFIELD')?.id,
     );
     await page.locator(`[data-card="${id}"]`).click({ button: 'right' });
+    // Sur une carte visible, l'entrée est rangée dans le tiroir « Plus ».
+    await page.locator('div.fixed.z-50.w-60 button').filter({ hasText: /^Plus/ }).first().hover();
     // Une seule entrée, qui bascule : le libellé dit ce que fera le clic, et
     // c'est `facedownOnTable` qui le décide — pas `faceDown`, qui vaut toujours
     // `false` pour le propriétaire d'une carte qu'il a lui-même retournée.
-    const labels = await page.locator('div.fixed.z-50.w-60 button').allTextContents();
+    const labels = [
+      ...(await page.locator('div.fixed.z-50.w-60 button').allTextContents()),
+      ...(await page.locator('[data-test="card-submenu"] button').allTextContents()),
+    ];
     if (!labels.some((l) => l.startsWith('Retourner face cachée'))) {
       throw new Error(`entrée manquante : Retourner face cachée — ${JSON.stringify(labels)}`);
     }
@@ -2992,7 +3018,7 @@ async function findDoubleFaced() {
     }
     const logBefore = await page.evaluate(() => window.__mtg.getState().log.length);
     await page
-      .locator('div.fixed.z-50.w-60 button')
+      .locator('[data-test="card-submenu"] button')
       .filter({ hasText: /^Retourner face cachée/ })
       .first()
       .click();

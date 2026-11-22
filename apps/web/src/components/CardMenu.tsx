@@ -10,7 +10,7 @@ import { CARD_TYPES } from '@mtg/shared';
 import type { CardView, CascadeCriterion, PublicCardView, ZoneKind } from '@mtg/shared';
 import { useGame, zoneKey } from '../store/game.js';
 import { api } from '../lib/api.js';
-import { cardMeta, cardName } from '../lib/cards.js';
+import { cardMeta, cardName, isDoubleFaced } from '../lib/cards.js';
 import { localizedCard, localizedCardName, useLocalizationTick } from '../lib/cardLocalization.js';
 import { useLanguage } from '../store/prefs.js';
 import { tokenName, useT, type CatalogKey } from '../lib/i18n/index.js';
@@ -356,13 +356,16 @@ function EntryButton({
       /*
        * Survol **et** clic, et le clic n'est pas un supplément d'âme : la table
        * est une PWA qui se joue au doigt, et un tiroir qui ne s'ouvre qu'au
-       * survol serait inatteignable sans souris. Le clic bascule, pour qu'un
-       * second appui referme au lieu de piéger le doigt.
+       * survol serait inatteignable sans souris. Au doigt, le clic bascule,
+       * pour qu'un second appui referme au lieu de piéger le doigt. À la
+       * souris, il **ouvre** toujours : le survol l'a déjà ouvert, et la
+       * bascule refermait le tiroir sous le clic qui voulait y entrer.
        */
       onPointerEnter={() => (entry.submenu ? open() : setOpenSub(null))}
-      onClick={() => {
+      onClick={(event) => {
         if (!entry.submenu) return entry.run?.();
-        if (isOpen) setOpenSub(null);
+        const mouse = (event.nativeEvent as PointerEvent).pointerType === 'mouse';
+        if (isOpen && !mouse) setOpenSub(null);
         else open();
       }}
     >
@@ -2055,6 +2058,40 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  /*
+   * Le menu, élagué.
+   *
+   * Vingt entrées sur un permanent, dont la moitié ne sert qu'une partie sur
+   * dix : on cherchait « Engager » entre « Copier en jeton » et « Posée par
+   * erreur ». Le premier niveau garde ce qu'on fait à chaque tour ; le reste
+   * part dans trois tiroirs — marqueurs, bibliothèque, « plus ». Rien ne
+   * disparaît, et chaque raccourci clavier reste le même. « Transformer »
+   * ne reste en tête que pour une carte qui a vraiment un verso.
+   */
+  const shownEntries =
+    inZone === 'BATTLEFIELD' || inZone === 'HAND'
+      ? regroupEntries(entries, [
+          { label: t('menu.counters'), members: [t('card.removePlusCounter'), t('card.customCounter')] },
+          {
+            label: t('menu.library'),
+            members: [t('zone.libraryTop'), t('zone.libraryBottom'), t('card.nthFromTop')],
+          },
+          {
+            label: t('menu.more'),
+            members: [
+              ...(facedown ? [] : [t('card.turnFaceDown')]),
+              ...(isDoubleFaced(meta) ? [] : [t('card.transform')]),
+              t('card.copyAsToken'),
+              // « Attacher à… » reste en tête : auras et équipements, c'est
+              // un geste de toutes les parties de Commander.
+              t('card.takeBackHand'),
+              t('card.takeBackHide'),
+              t('card.changePrinting'),
+            ],
+          },
+        ])
+      : entries;
+
   return (
     <>
       <div
@@ -2194,7 +2231,7 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
             })}
           </div>
         )}
-        {entries.map((entry) => (
+        {shownEntries.map((entry) => (
           <EntryButton
             key={entry.label}
             entry={entry}
@@ -2206,9 +2243,45 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
       {openSub && (
         <Submenu
           anchor={openSub.rect}
-          entries={entries.find((e) => e.label === openSub.label)?.submenu ?? []}
+          entries={shownEntries.find((e) => e.label === openSub.label)?.submenu ?? []}
         />
       )}
     </>
   );
+}
+
+/**
+ * Range dans des tiroirs les entrées dont le libellé figure dans un groupe.
+ *
+ * Par libellé, parce que les entrées naissent dans des branches éparses de
+ * `CardMenu` et qu'aucune n'a d'identifiant : le libellé traduit est la seule
+ * clé commune. Un groupe vide n'apparaît pas ; un groupe d'une seule entrée
+ * la laisse à sa place (un tiroir pour une ligne ne simplifie rien). Une
+ * entrée qui a déjà son sous-menu n'est jamais rangée : il n'y a qu'un niveau.
+ */
+export function regroupEntries(
+  entries: Entry[],
+  groups: Array<{ label: string; members: string[] }>,
+): Entry[] {
+  const bucket = new Map<string, Entry[]>();
+  const owner = new Map<string, string>();
+  for (const g of groups) for (const m of g.members) owner.set(m, g.label);
+  for (const e of entries) {
+    const g = !e.submenu ? owner.get(e.label) : undefined;
+    if (g) bucket.set(g, [...(bucket.get(g) ?? []), e]);
+  }
+  const moved = new Set<Entry>();
+  for (const list of bucket.values()) if (list.length > 1) for (const e of list) moved.add(e);
+  const kept = entries.filter((e) => !moved.has(e));
+  const drawers: Entry[] = groups
+    .map((g) => bucket.get(g.label))
+    .filter((list): list is Entry[] => !!list && list.length > 1)
+    .map((list, i) => ({
+      label: groups.find((g) => bucket.get(g.label) === list)!.label,
+      separatorBefore: i === 0,
+      submenu: list.map((e) => ({ ...e, separatorBefore: false })),
+    }));
+  // Les tiroirs se placent avant « Actions assistées », qui reste la dernière.
+  const assisted = kept.findIndex((e) => e.submenu);
+  return assisted >= 0 ? [...kept.slice(0, assisted), ...drawers, ...kept.slice(assisted)] : [...kept, ...drawers];
 }

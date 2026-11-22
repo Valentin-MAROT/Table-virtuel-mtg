@@ -10,6 +10,7 @@
  * Rien n'est imposé (§1.1) : « Plus tard » ferme le bandeau, et les cartes se
  * remettent dessous à la main comme avant (menu, touche B).
  */
+import { useEffect } from 'react';
 import { mulliganBottomCount } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { markMulliganDone, markOpeningKept, useMulliganPending, useOpeningPending } from '../lib/mulliganPending.js';
@@ -38,6 +39,18 @@ export function OpeningHandBar(): React.ReactElement | null {
     const me = s.seats.find((x) => x.id === s.mySeat);
     return me?.playerCounters.find((c) => c.kind === 'mulligans')?.value ?? 0;
   });
+  /*
+   * Avoir posé une carte, c'est avoir gardé sa main — même si le champ se vide
+   * ensuite. Sans cela, le bandeau revenait dès que la dernière carte posée
+   * repartait (en main, au cimetière, en zone de commandement) au premier tour.
+   */
+  const hasPlayed = useGame((s) => {
+    for (const c of s.cards.values()) if (c.zone.seat === s.mySeat && c.zone.kind === 'BATTLEFIELD') return true;
+    return false;
+  });
+  useEffect(() => {
+    if (hasPlayed) markOpeningKept();
+  }, [hasPlayed]);
   if (!open) return null;
   const nextCost = mulliganBottomCount(counter + 1);
 
