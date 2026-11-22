@@ -23,7 +23,7 @@ async function persistLog(roomId: string, entries: LogEntry[]): Promise<void> {
         roomId,
         seq: e.seq,
         type: 'LOG',
-        payload: { text: e.text, cardIds: e.cardIds, actor: e.actor } as never,
+        payload: { text: e.text, cardIds: e.cardIds, actor: e.actor, turn: e.turn ?? null } as never,
       })),
       skipDuplicates: true,
     })
@@ -58,12 +58,40 @@ function supportedMode(mode: string): GameMode {
   return (GAME_MODES as readonly string[]).includes(mode) ? (mode as GameMode) : 'COMMANDER';
 }
 
+/**
+ * Les chargements en cours, par code de table.
+ *
+ * **Deux demandes simultanées pour une table pas encore chargée ne doivent
+ * jamais en fabriquer deux.** `getRoom` regardait la mémoire, ne trouvait rien,
+ * puis attendait la base : une seconde demande arrivée pendant cette attente ne
+ * trouvait rien non plus, et chacune créait sa `Room` — la seconde écrasant la
+ * première dans le registre. Le joueur connecté à la première s'asseyait donc
+ * dans une table que plus personne ne pouvait rejoindre : son lien d'invitation
+ * menait à l'autre, vide, et lui-même la perdait au premier rechargement
+ * (« personne encore », son siège disparu). Le cas se produit à l'ouverture
+ * d'une table neuve, quand la page interroge `/api/rooms/:code` au moment où
+ * son socket se connecte. On partage donc la promesse du premier chargement.
+ */
+const loading = new Map<string, Promise<Room | null>>();
+
 export async function getRoom(code: string): Promise<Room | null> {
   const existing = rooms.get(code);
   if (existing) return existing;
 
+  const pending = loading.get(code);
+  if (pending) return pending;
+
+  const load = loadRoom(code).finally(() => loading.delete(code));
+  loading.set(code, load);
+  return load;
+}
+
+async function loadRoom(code: string): Promise<Room | null> {
   const record = await prisma.gameRoom.findUnique({ where: { code } });
   if (!record) return null;
+  // Une autre voie a pu poser la table pendant l'attente : elle fait foi.
+  const arrived = rooms.get(code);
+  if (arrived) return arrived;
 
   const room = new Room(record.id, record.code, supportedMode(record.gameMode), undefined, {
     persistLog: (roomId, entries) => void persistLog(roomId, entries),

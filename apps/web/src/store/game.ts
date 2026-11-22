@@ -19,11 +19,15 @@ import type {
   SeatSummary,
   ServerMessage,
   Snapshot,
+  TreacheryDistribution,
+  TreacheryIdentityView,
+  TreacheryTeam,
   ZoneRef,
 } from '@mtg/shared';
 import type { Intent } from '@mtg/shared';
 import { GameSocket, type SocketStatus } from '../net/socket.js';
 import { requestCard } from '../lib/cards.js';
+import { noteCommander } from '../lib/commanders.js';
 import { DRAG_THRESHOLD, dragPointer } from '../lib/drag.js';
 
 export interface ChatBubble {
@@ -42,7 +46,22 @@ interface GameStore {
   roomCode: string | null;
   room: Snapshot['room'] | null;
   /** Dernière fin de partie reçue, tant qu'elle n'a pas été acquittée. */
-  gameOver: { reason: 'CONCEDE' | 'HOST' | 'TIMEOUT'; winners: SeatId[] } | null;
+  gameOver: {
+    reason: 'CONCEDE' | 'HOST' | 'TIMEOUT';
+    winners: SeatId[];
+    /** Treachery : l'équipe gagnante, quand il y en a une. */
+    team?: TreacheryTeam;
+  } | null;
+  /**
+   * Treachery : la répartition des rôles et les identités **que ce client a
+   * reçues** — la sienne, et celles qui sont face visible. `null` hors partie
+   * Treachery. Une identité absente d'ici est une identité secrète : le client
+   * ne la devine pas, il ne l'a simplement pas.
+   */
+  treachery: {
+    distribution: TreacheryDistribution;
+    identities: Map<SeatId, TreacheryIdentityView>;
+  } | null;
   turn: Snapshot['turn'];
   seats: SeatSummary[];
   cards: Map<ObjectId, CardView>;
@@ -179,6 +198,12 @@ export function zoneKey(zone: ZoneRef): string {
   return `${zone.seat}|${zone.kind}`;
 }
 
+/** Le tour à estampiller sur une ligne de journal reçue en direct (`LogEntry.turn`). */
+function tourCourant(get: Getter): NonNullable<LogEntry['turn']> {
+  const { turnNumber, activeSeat } = get().turn;
+  return { number: turnNumber, seat: activeSeat };
+}
+
 let chatSeq = 0;
 
 /**
@@ -233,7 +258,7 @@ function dropPrediction(cardId: ObjectId): void {
  */
 function blankRoomState(): Pick<
   GameStore,
-  | 'status' | 'statusDetail' | 'seq' | 'mySeat' | 'roomCode' | 'room' | 'gameOver'
+  | 'status' | 'statusDetail' | 'seq' | 'mySeat' | 'roomCode' | 'room' | 'gameOver' | 'treachery'
   | 'turn' | 'seats' | 'cards' | 'zoneCounts' | 'labels' | 'log' | 'cursors' | 'chat'
   | 'pendingLook' | 'publicReveal' | 'looksInProgress' | 'handsRevealed' | 'topReveals' | 'lastReject' | 'selection'
   | 'hoveredCardId' | 'hoveredPreview' | 'drag' | 'predicted' | 'attachPending' | 'menu'
@@ -255,6 +280,7 @@ function blankRoomState(): Pick<
     roomCode: null,
     room: null,
     gameOver: null,
+    treachery: null,
     turn: { activeSeat: null, turnNumber: 0, phase: 'MAIN1' },
     seats: [],
     cards: new Map(),
@@ -300,6 +326,7 @@ export const useGame = create<GameStore>((set, get) => ({
   roomCode: null,
   room: null,
   gameOver: null,
+  treachery: null,
   turn: { activeSeat: null, turnNumber: 0, phase: 'MAIN1' },
   seats: [],
   cards: new Map(),
@@ -504,7 +531,7 @@ export function handleMessage(message: ServerMessage, set: Setter, get: Getter):
             set({
               log: [
                 ...get().log.slice(-400),
-                { seq: event.seq, at: event.at, actor: event.actor, ...event.log },
+                { seq: event.seq, at: event.at, actor: event.actor, ...event.log, turn: tourCourant(get) },
               ],
             });
           }
@@ -538,6 +565,9 @@ export function handleMessage(message: ServerMessage, set: Setter, get: Getter):
           // Facultatif, et rare : seules les lignes dont les ancres ne couvrent
           // pas le lot le portent (cascade). Cf. `LogEntry.names`.
           ...(message.log.names ? { names: message.log.names } : {}),
+          // L'event vient d'être appliqué : un `TURN_ENDED` a déjà avancé le
+          // tour, et sa ligne ouvre le bloc du nouveau tour, comme côté serveur.
+          turn: tourCourant(get),
         };
         set({ log: [...get().log.slice(-400), entry] });
       }
@@ -601,6 +631,7 @@ function applySnapshot(snapshot: Snapshot, seat: SeatId | null, set: Setter): vo
   const cards = new Map<ObjectId, CardView>();
   for (const card of snapshot.cards) {
     cards.set(card.id, card);
+    noteCommander(card);
     if (card.faceDown === false) requestCard(card.scryfallId);
   }
 
@@ -623,6 +654,12 @@ function applySnapshot(snapshot: Snapshot, seat: SeatId | null, set: Setter): vo
     topReveals: new Map(
       (snapshot.topReveals ?? []).map((t) => [t.seat, { toSeats: t.toSeats, cardId: t.cardId }]),
     ),
+    treachery: snapshot.treachery
+      ? {
+          distribution: snapshot.treachery.distribution,
+          identities: new Map(snapshot.treachery.identities.map((i) => [i.seat, i])),
+        }
+      : null,
     // Le snapshot fait autorité, y compris quand il ne donne aucun siège :
     // une connexion sans siège (§13.4) doit ramener le client au salon, pas
     // conserver le siège d'avant.
@@ -634,6 +671,7 @@ function upsertCard(set: Setter, get: Getter, card: CardView): void {
   const cards = new Map(get().cards);
   const before = cards.get(card.id);
   cards.set(card.id, card);
+  noteCommander(card);
   if (card.faceDown === false) requestCard(card.scryfallId);
   set({ cards });
   // Le serveur a parlé sur cette carte : sa position prédite n'a plus lieu d'être.
@@ -687,6 +725,7 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
       const cards = new Map(get().cards);
       for (const card of event.cards) {
         cards.set(card.id, card);
+        noteCommander(card);
         if (card.faceDown === false) requestCard(card.scryfallId);
       }
       set({ cards });
@@ -1005,9 +1044,32 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
           : null,
         // Le motif sert l'affichage : « l'hôte a clos la table » et « il ne
         // reste qu'un joueur » ne se disent pas de la même façon.
-        gameOver: { reason: event.reason, winners: event.winners },
+        gameOver: {
+          reason: event.reason,
+          winners: event.winners,
+          ...(event.team ? { team: event.team } : {}),
+        },
       });
       return;
+
+    case 'TREACHERY_SETUP':
+      // Une nouvelle distribution repart de zéro ; `null` dit qu'il n'y en a
+      // plus. Dans les deux cas, rien de ce qu'on savait ne vaut encore.
+      set({
+        treachery: event.distribution
+          ? { distribution: event.distribution, identities: new Map() }
+          : null,
+      });
+      return;
+
+    case 'IDENTITY_SHOWN': {
+      const treachery = get().treachery;
+      if (!treachery) return;
+      const identities = new Map(treachery.identities);
+      identities.set(event.identity.seat, event.identity);
+      set({ treachery: { ...treachery, identities } });
+      return;
+    }
 
     case 'CHAT':
       pushBubble(set, get, event.seat, event.text, 8000);

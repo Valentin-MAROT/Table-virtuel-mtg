@@ -62,6 +62,18 @@
  * reçoit donc un marqueur qu'il sait lire depuis la version 1 : il affichera la
  * formule en clair au lieu de la pastille violette — moins joli, mais jamais
  * faux, et c'est le critère de la §11.
+ *
+ * Le **mode Treachery** ne la monte pas davantage. Il ajoute un intent
+ * (`UNVEIL`), deux events (`TREACHERY_SETUP`, `IDENTITY_SHOWN`) et deux champs
+ * facultatifs (`Snapshot.treachery`, `GAME_ENDED.team`) — mais rien de tout cela
+ * n'existe hors d'une table Treachery, et une table Treachery ne peut pas
+ * exister avant ce déploiement. Aucune partie en cours ne reçoit donc un message
+ * qu'elle ne sait pas lire ; fermer toutes les tables de Commander pour un mode
+ * qu'elles ne jouent pas serait, une fois de plus, une punition sans motif.
+ * Le seul client exposé est un onglet resté ouvert **et** conduit ensuite sur
+ * une table Treachery sans rechargement : il ne verrait pas les identités — il
+ * n'afficherait rien de faux, il lui manquerait le mode entier, et un
+ * rechargement le lui donne.
  */
 export const PROTOCOL_VERSION = 3;
 
@@ -288,9 +300,30 @@ export type PhaseName = (typeof PHASES)[number];
  * d'implémentation et offrait une promesse que la table ne tenait pas.
  * La valeur reste dans l'enum Prisma, pour ne pas casser les parties déjà
  * enregistrées ; le serveur les ramène à COMMANDER au chargement.
+ *
+ * `TREACHERY` est la variante à rôles cachés : une partie de Commander, de
+ * quatre à huit joueurs, où chacun reçoit une identité secrète. Voir
+ * `treachery/rules.ts`.
  */
-export const GAME_MODES = ['COMMANDER', 'DUEL', 'DRAFT'] as const;
+export const GAME_MODES = ['COMMANDER', 'DUEL', 'DRAFT', 'TREACHERY'] as const;
 export type GameMode = (typeof GAME_MODES)[number];
+
+/**
+ * Mulligan londonien : combien de cartes remettre sous la bibliothèque après
+ * le `mulligans`-ième mulligan, une fois la main gardée.
+ *
+ * Une carte par mulligan **payant**. Le mulligan gratuit est un choix de la
+ * table, fait mulligan par mulligan (`MULLIGAN` avec `free`) : il ne compte pas
+ * ici, puisqu'il n'incrémente pas le compteur `mulligans`. Rien n'est imposé —
+ * le premier mulligan gratuit du Commander (CR 103.5c) n'est pas appliqué
+ * d'office, beaucoup de tables ne le jouent pas.
+ *
+ * Partagé pour que le journal du serveur et le bandeau du client disent le même
+ * nombre.
+ */
+export function mulliganBottomCount(mulligans: number): number {
+  return Math.max(0, mulligans);
+}
 
 export const ROOM_STATUSES = ['LOBBY', 'PLAYING', 'ENDED'] as const;
 export type RoomStatus = (typeof ROOM_STATUSES)[number];
@@ -353,6 +386,19 @@ export interface LogEntry {
    * n'a donc pas bougé.
    */
   names?: string[];
+  /**
+   * Le tour pendant lequel la ligne a été écrite, et le siège qui l'avait.
+   *
+   * Sert au journal à tracer une séparation nette entre les tours : sans elle,
+   * trente lignes de deux joueurs se suivent sans qu'on voie où l'un s'arrête.
+   * `number` vaut 0 avant le début de la partie (mulligans, mise en place).
+   *
+   * Estampillé par le serveur sur `state.log`, donc présent dans `logTail` et
+   * dans le replay ; une ligne reçue en direct est estampillée par le client
+   * depuis son propre `turn`, déjà à jour puisque l'event passe avant la ligne.
+   * Ajout **facultatif** : une ligne sans tour reste dans le bloc courant.
+   */
+  turn?: { number: number; seat: SeatId | null };
 }
 
 /**

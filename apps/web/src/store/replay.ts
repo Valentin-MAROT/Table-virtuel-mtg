@@ -62,7 +62,7 @@ type Frozen = Pick<
   ReturnType<typeof useGame.getState>,
   | 'seq' | 'room' | 'turn' | 'seats' | 'cards' | 'zoneCounts' | 'labels' | 'log'
   | 'pendingLook' | 'publicReveal' | 'looksInProgress' | 'handsRevealed' | 'topReveals'
-  | 'gameOver' | 'chat'
+  | 'gameOver' | 'chat' | 'treachery'
 >;
 
 function freeze(): Frozen {
@@ -83,6 +83,7 @@ function freeze(): Frozen {
     topReveals: s.topReveals,
     gameOver: s.gameOver,
     chat: s.chat,
+    treachery: s.treachery,
   };
 }
 

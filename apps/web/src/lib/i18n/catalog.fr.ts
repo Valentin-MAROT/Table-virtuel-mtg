@@ -44,6 +44,21 @@ export const fr = {
   // — Barre d'outils et table ————————————————————————————————
   'toolbar.mulligan': 'Mulligan',
   'toolbar.passTurn': 'Passer le tour',
+  'toolbar.freeMulligan': 'Mulligan gratuit',
+  // — Tour : phases et début de tour —————————————————————————
+  'turn.phase.UNTAP': 'Dég.',
+  'turn.phase.UPKEEP': 'Entr.',
+  'turn.phase.DRAW': 'Pioche',
+  'turn.phase.MAIN1': 'Pr. 1',
+  'turn.phase.COMBAT': 'Combat',
+  'turn.phase.MAIN2': 'Pr. 2',
+  'turn.phase.END': 'Fin',
+  'turn.phasesHint': 'Étape en cours. Le joueur actif la change d’un clic (Maj + Espace : étape suivante).',
+  'turn.startUntapDraw': 'Dégager + piocher',
+  'turn.startUntap': 'Dégager',
+  'turn.startHint': 'C’est à vous. Un clic dégage vos permanents, pioche, et passe en phase principale.',
+  'turn.startHintNoDraw':
+    'Premier tour d’une partie à deux : on ne pioche pas. Un clic dégage et passe en phase principale.',
   'toolbar.quickTokens': 'Jetons rapides',
   'toolbar.shortcuts': 'Raccourcis clavier',
   'toolbar.undo': 'Annuler sa dernière action (10 s)',
@@ -310,6 +325,29 @@ export const fr = {
     other: 'Illustrations choisies à la main',
   },
   'deck.pinnedRelease': 'Rendre à la source',
+  'deck.tokensNone': 'Étagère à jetons vide',
+  'deck.tokens': {
+    one: 'Étagère à jetons : {count} jeton',
+    other: 'Étagère à jetons : {count} jetons',
+  },
+  'deck.tokensCopyFrom': 'Copier les jetons de :',
+  'deck.tokensCopyHint': 'Ajoute à ce deck les jetons de « {name} » qu’il n’a pas encore. Rien n’est retiré.',
+  'shelf.title': 'Étagère à jetons',
+  'shelf.ofDeck': 'Deck : {name}',
+  'shelf.ofTable': 'Liste collée : étagère de cette table',
+  'shelf.ofTableHint':
+    'Cette étagère n’est gardée que pour cette table. Chargez un deck enregistré pour qu’elle le suive.',
+  'shelf.empty': 'Vide. Clic droit sur un jeton en jeu pour l’y ranger.',
+  'shelf.copy': 'Copier les jetons',
+  'shelf.copyInto': 'Choisissez l’étagère à copier dans celle de « {name} ». Ses jetons s’ajoutent, rien n’est retiré.',
+  'shelf.copyIntoTable': 'Choisissez l’étagère à copier dans celle de cette table. Ses jetons s’ajoutent, rien n’est retiré.',
+  'shelf.tokenCount': { one: '{count} jeton', other: '{count} jetons' },
+  'shelf.copied': {
+    one: '{count} jeton ajouté',
+    other: '{count} jetons ajoutés',
+  },
+  'shelf.legacy': 'Ancienne étagère',
+  'shelf.saveFailed': 'Étagère non enregistrée',
   'deck.pinnedReleaseHint':
     'La prochaine resynchronisation remettra les illustrations annoncées par la source. Le contenu du deck ne change pas.',
   'deck.pinnedKept': {
@@ -425,6 +463,7 @@ export const fr = {
   'card.revealTo': 'Révéler à…',
   'card.discard': 'Défausser',
   'card.exile': 'Exiler',
+  'card.toCommand': 'Renvoyer en zone de commandement',
   'card.toHand': 'Vers la main',
   'card.toGraveyard': 'Au cimetière',
   'card.toBattlefield': 'Sur le champ de bataille',
@@ -685,6 +724,11 @@ export const fr = {
   'log.tableActor': 'Table',
   'log.messagePlaceholder': 'Votre message…',
   'log.expandCards': { one: 'Voir la carte', other: 'Voir les {count} cartes' },
+  /** En-tête qui ouvre chaque tour dans le journal. */
+  'log.turnHeader': 'Tour {number}',
+  'log.preGame': 'Avant la partie',
+  /** Infobulle de la pastille « ×3 » d'une ligne répétée. */
+  'log.repeated': { one: 'Une fois', other: '{count} fois de suite' },
 
   // — Raccourcis clavier : noms de touches ————————————————————————
   'keys.enter': 'Entrée',
@@ -699,6 +743,14 @@ export const fr = {
   'keys.dragCard': 'Glisser une carte',
   'keys.doubleClick': 'Double-clic',
   'keys.rightClick': 'Clic droit',
+  'keys.click': 'Clic',
+  'keys.space': 'Espace',
+  'keys.shiftSpace': 'Maj + Espace',
+  'keys.doubleClickHand': 'Double-clic en main',
+  'keys.libraryGesture': 'Double-clic sur sa bibliothèque, ou la glisser vers sa main',
+  'keys.shiftDropLibrary': 'Maj + lâcher sur la bibliothèque',
+  'keys.dropOnPermanent': 'Lâcher une aura ou un équipement sur un permanent',
+  'keys.wheelCounter': 'Molette sur un marqueur ou sur sa vie',
 
   // — Raccourcis clavier : gestes et aide ————————————————————————
   'shortcut.tapUntap': 'Engager / dégager',
@@ -717,6 +769,12 @@ export const fr = {
   'shortcut.toggleSelection': 'Ajouter ou retirer de la sélection',
   'shortcut.dropInZone': 'La déposer dans une autre zone',
   'shortcut.contextMenu': 'Menu de la carte, de la pile ou de la table',
+  'shortcut.selectCard': 'Sélectionner la carte',
+  'shortcut.nextPhase': 'Étape suivante',
+  'shortcut.myLife': 'Ma vie ±1',
+  'shortcut.selectAllMine': 'Sélectionner tous mes permanents',
+  'shortcut.attachDrop': 'L’attacher',
+  'shortcut.wheelCounter': '±1 (Maj + clic sur − / + : ±5 points de vie)',
   'shortcut.ruleLead': "Une touche agit d'abord sur la carte",
   'shortcut.ruleUnderCursor': 'sous le curseur',
   'shortcut.ruleOtherwise': ', sinon sur la',
@@ -789,6 +847,9 @@ export const fr = {
   'consult.powerToughness': 'Force / Endurance :',
   'consult.quickAction': 'Action rapide :',
   'consult.summary': 'Synthèse :',
+  'consult.topOrder': 'Ordre du dessus (1 = pioché en premier) :',
+  'consult.moveUp': 'Plus haut',
+  'consult.moveDown': 'Plus bas',
   'consult.sumHand': '{count} en main',
   'consult.sumBattlefield': '{count} sur le champ',
   'consult.sumGraveyard': '{count} au cimetière',
@@ -1120,6 +1181,59 @@ export const fr = {
   'assist.populate': 'Peupler (copier ce jeton)',
   'assist.proliferateOne': 'Proliférer sur cette carte',
   'assist.proliferateMany': 'Proliférer sur {count} cartes',
+  // — Treachery ——————————————————————————————————————————————
+  /*
+   * « Treachery », « Leader » : des noms propres de la variante, gardés tels
+   * quels. Les trois autres rôles ont un mot français évident et on le prend —
+   * c'est ce que les joueurs disent à voix haute autour d'une table.
+   */
+  'home.modeTreacheryDetail':
+    'De 4 à 8 sièges, 40 points de vie. Chacun reçoit une identité secrète : Leader, Gardien, Assassin ou Traître.',
+  'treachery.title': 'Treachery',
+  'treachery.role.LEADER': 'Leader',
+  'treachery.role.GUARDIAN': 'Gardien',
+  'treachery.role.ASSASSIN': 'Assassin',
+  'treachery.role.TRAITOR': 'Traître',
+  'treachery.goal.LEADER': 'Restez en jeu jusqu’à ce que tous les Assassins et tous les Traîtres soient tombés.',
+  'treachery.goal.GUARDIAN': 'Protégez le Leader : vous gagnez et vous perdez avec lui.',
+  'treachery.goal.ASSASSIN': 'Faites tomber le Leader tant qu’un Assassin est encore en jeu.',
+  'treachery.goal.TRAITOR':
+    'Soyez le dernier en jeu : les Assassins doivent tomber avant le Leader, et les autres Traîtres aussi.',
+  'treachery.secret': 'Secrète : vous seul la voyez',
+  'treachery.unveiled': 'Dévoilée',
+  'treachery.seeCard': 'Voir la carte',
+  'treachery.unveil': 'Dévoiler',
+  'treachery.unveilConfirmTitle': 'Dévoiler votre identité ?',
+  'treachery.unveilConfirmBody':
+    'Toute la table verra votre carte, et c’est définitif. Le coût de dévoilement se paie à la table, comme n’importe quel coût.',
+  'treachery.stillSecret': {
+    one: '{count} identité encore secrète',
+    other: '{count} identités encore secrètes',
+  },
+  'treachery.lobbyRange': 'Treachery se joue de 4 à 8 joueurs.',
+  'treachery.lobbyNeed': {
+    one: 'Il manque {count} joueur pour lancer.',
+    other: 'Il manque {count} joueurs pour lancer.',
+  },
+  'treachery.lobbyDeal': 'À {count} joueurs : {roles}.',
+  'treachery.cardType': 'Identité : {role}',
+  'treachery.rarity.U': 'Inhabituelle',
+  'treachery.rarity.R': 'Rare',
+  'treachery.rarity.M': 'Mythique',
+  'treachery.rarity.S': 'Spéciale',
+  'treachery.cardEnglish': 'Texte officiel de la carte, publié en anglais.',
+  'treachery.cardSource': 'Fiche et précisions de règles sur mtgtreachery.net',
+  'treachery.cardCredit':
+    'Treachery est une variante créée par ses auteurs et publiée sur mtgtreachery.net. Le texte vient de leur base publique ; l’image est chargée depuis leur site, et l’illustration appartient à son artiste.',
+  'treachery.cardArtist': 'Illustration : {artist}',
+  'treachery.cardImageAlt': 'Carte d’identité {name}',
+  'treachery.close': 'Fermer',
+  'treachery.win.LEADER': 'Le Leader et ses Gardiens remportent la partie.',
+  'treachery.win.ASSASSINS': 'Les Assassins remportent la partie.',
+  'treachery.win.TRAITOR': 'Le Traître remporte la partie.',
+  'treachery.win.none': 'La partie se termine sans vainqueur.',
+  'treachery.recap': 'Qui était qui',
+  'treachery.winner': 'vainqueur',
 } as const;
 
 /** La forme du catalogue : c'est le français qui la définit, toujours. */

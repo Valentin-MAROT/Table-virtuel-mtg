@@ -9,6 +9,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { DeckSummary, ImportReport } from '@mtg/shared';
+import {
+  loadLegacyShelf,
+  mergeTokenShelves,
+  saveDeckShelf,
+  type ShelfSource,
+  type ShelfToken,
+} from '../lib/shelf.js';
+import { DeckTokenShelf } from '../components/DeckTokenShelf.js';
 import { api, ApiError } from '../lib/api.js';
 import { DeckEditor } from '../components/DeckEditor.js';
 import { DeckLook } from '../components/DeckLook.js';
@@ -141,6 +149,11 @@ export function DecksPage(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [styling, setStyling] = useState<string | null>(null);
+  /** L'ancienne étagère commune : une source de copie parmi les autres. */
+  const [legacyShelf, setLegacyShelf] = useState<ShelfToken[]>([]);
+  useEffect(() => {
+    void loadLegacyShelf().then(setLegacyShelf);
+  }, []);
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
 
@@ -214,6 +227,22 @@ export function DecksPage(): React.ReactElement {
       await refresh();
     } catch (err) {
       if (err instanceof ApiError) setError({ message: err.message, hint: err.hint });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Copie dans ce deck les jetons d'une autre étagère : ceux qu'il n'a pas
+   * encore sont ajoutés à la suite, rien n'est retiré (`mergeTokenShelves`).
+   */
+  async function copyTokens(deck: DeckSummary, source: ShelfSource): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await saveDeckShelf(deck.id, mergeTokenShelves(deck.tokenShelf, source.items).items);
+      if (saved === null) setError({ message: t('shelf.saveFailed') });
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -504,6 +533,22 @@ export function DecksPage(): React.ReactElement {
                     </button>
                   </div>
                 )}
+
+                {/*
+                  L'étagère à jetons du deck, et la copie depuis un autre.
+
+                  Chaque source est un bouton : un clic copie, sans question.
+                  C'est sans danger parce que copier **ajoute** — ce que le deck
+                  a déjà reste en place — et c'est pourquoi une source qui
+                  n'apporterait rien n'est pas proposée du tout.
+                */}
+                <DeckTokenShelf
+                  busy={busy}
+                  deck={deck}
+                  decks={decks}
+                  legacy={legacyShelf}
+                  onCopy={(source) => void copyTokens(deck, source)}
+                />
 
                 {styling === deck.id && (
                   <DeckLook

@@ -97,10 +97,21 @@ export const LIMITS = {
   chatMaxChars: 240,
   labelMaxChars: 200,
   /**
-   * Quatre sièges au plus. Le produit vise la partie de Commander à quatre,
-   * pas la table géante : au-delà, la disposition des panneaux devient illisible
-   * et les parties interminables. Le mode Treachery, s'il arrive un jour,
-   * demandera de revoir ce plafond en même temps que la disposition.
+   * Quatre sièges au plus, **hors Treachery**. Le produit vise la partie de
+   * Commander à quatre, pas la table géante : au-delà, les parties deviennent
+   * interminables.
+   *
+   * Le mode Treachery, lui, se joue de quatre à huit : son plafond est
+   * `maxSeatsAbsolute`, et c'est `seatCap(mode)` (`treachery/rules.ts`) qui dit
+   * lequel des deux s'applique à une table donnée. La disposition des panneaux
+   * a été revue en même temps (`Table.tsx`, `layout`).
    */
   maxSeats: 4,
+  /**
+   * Le plus grand nombre de sièges qu'une table puisse jamais avoir, tous modes
+   * confondus. C'est la borne des **schémas** : ils ne connaissent pas le mode
+   * de la table, et ne peuvent donc que refuser ce qu'aucune table n'accepte.
+   * Le plafond réel est appliqué par la room.
+   */
+  maxSeatsAbsolute: 8,
 } as const;

@@ -5,6 +5,7 @@ import { useGame, zoneKey } from '../store/game.js';
 import { zoneAttr } from '../lib/drag.js';
 import { HOVER_HEADROOM, handRailHeight, handScale } from '../lib/handMetrics.js';
 import { dragJustEnded, startCardDrag } from './DragLayer.js';
+import { useMulliganPending } from '../lib/mulliganPending.js';
 
 /**
  * Recouvrement entre deux cartes de la main, en pixels.
@@ -61,6 +62,7 @@ export function Hand({
   const selection = useGame((s) => s.selection);
   const setSelection = useGame((s) => s.setSelection);
   const toggleSelected = useGame((s) => s.toggleSelected);
+  const mulliganPending = useMulliganPending() !== null;
   const rail = useRef<HTMLDivElement>(null);
   /*
    * La taille des cartes suit la fenêtre. On la garde en état plutôt que de la
@@ -120,7 +122,9 @@ export function Hand({
    * sélection, et un lot hors champ de bataille part en un seul `MOVE_CARDS`.
    */
   function pick(card: CardView, event: React.MouseEvent | React.PointerEvent): void {
-    if (event.ctrlKey || event.metaKey) {
+    // Pendant un mulligan, on compose un lot à remettre dessous : le clic
+    // simple ajoute ou retire, sans Ctrl (`MulliganBar`).
+    if (event.ctrlKey || event.metaKey || mulliganPending) {
       toggleSelected(card.id, true);
       anchor.current = card.id;
       return;
@@ -140,12 +144,29 @@ export function Hand({
   }
 
   return (
+    /*
+      Le rail se centre **entre** les deux coins bas, pas dans la fenêtre : à
+      gauche les boutons de cadrage (jusqu'à 270 px), à droite la réserve de
+      mana, dont la largeur dépend de son état et qu'elle publie elle-même
+      (`--mana-pool-w`, voir `ManaPool`). L'ancienne borne — la fenêtre moins
+      340 px, centrée — laissait la main passer sous les deux dès huit cartes,
+      et sous la réserve dès sept sur un écran de 1280 px : la dernière carte
+      n'était plus cliquable. En fenêtre étroite les colonnes sont un tiroir
+      et les coins sont libres : on garde toute la largeur.
+    */
+    <div
+      className="pointer-events-none"
+      style={
+        viewport.width < 900
+          ? undefined
+          : { paddingLeft: 276, paddingRight: 'calc(var(--mana-pool-w, 0px) + 24px)' }
+      }
+    >
     <div
       ref={rail}
-      /* `w-fit` tant que la main tient à l'écran : le rail ne doit pas
-         recouvrir les contrôles flottants des coins bas. Au-delà, il se borne
-         à la largeur disponible et défile. */
-      className="scrollbar-thin pointer-events-auto mx-auto flex w-fit max-w-[calc(100vw-340px)] items-end justify-start overflow-x-auto overflow-y-hidden px-4"
+      /* `w-fit` tant que la main tient : au-delà, le rail se borne à la
+         largeur disponible et défile. */
+      className="scrollbar-thin pointer-events-auto mx-auto flex w-fit max-w-full items-end justify-start overflow-x-auto overflow-y-hidden px-4"
       data-test="hand-rail"
       data-zone={zoneAttr({ seat: mySeat, kind: 'HAND' })}
       style={{
@@ -207,6 +228,7 @@ export function Hand({
           </div>
         ))
       )}
+    </div>
     </div>
   );
 }

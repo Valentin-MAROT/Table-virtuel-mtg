@@ -26,7 +26,7 @@ const DECK = ['// Commander', '1 Selenia, the Cursed Heart', '', '// Deck', '4 S
 
 /** Les mêmes bandeaux fixes que ceux dont `Table` tient compte pour cadrer. */
 const SIDE_LOG = 304;
-const SIDE_PANEL = 240;
+const SIDE_PANEL = 256;
 const TOP_BAR = 60;
 
 const browser = await chromium.launch({ headless: true });

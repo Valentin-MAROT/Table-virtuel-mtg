@@ -153,6 +153,12 @@ export function LookModal(): React.ReactElement | null {
   // calculée quand aucune traduction n'était encore arrivée.
   const localizationTick = useLocalizationTick();
   const [buckets, setBuckets] = useState<Record<string, Bucket>>({});
+  /**
+   * Ordre choisi pour les cartes gardées au-dessus, la première étant le
+   * nouveau dessus. Vide : l'ordre reçu. Le serveur applique déjà `top` dans
+   * l'ordre donné ; il ne manquait que le moyen de le régler (ux-polish §11).
+   */
+  const [topOrder, setTopOrder] = useState<string[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
   const [activeType, setActiveType] = useState<string | null>(null);
@@ -182,6 +188,7 @@ export function LookModal(): React.ReactElement | null {
     // Par défaut tout reste sur le dessus, dans l'ordre reçu : ne rien faire
     // puis valider doit laisser la bibliothèque telle qu'elle était.
     setBuckets(Object.fromEntries(pending.cards.map((c) => [c.id, 'top' as Bucket])));
+    setTopOrder([]);
     setPicked(new Set());
     setFilter('');
     // Sur une fouille, chercher une carte par son nom est le geste normal :
@@ -333,12 +340,26 @@ export function LookModal(): React.ReactElement | null {
   const idsIn = (bucket: Bucket): string[] =>
     cards.filter((c) => buckets[c.id] === bucket).map((c) => c.id);
 
+  /** Le dessus dans l'ordre choisi ; ce qui n'a pas été déplacé garde l'ordre reçu. */
+  const orderedTop = (): string[] => {
+    const top = idsIn('top');
+    return [...topOrder.filter((id) => top.includes(id)), ...top.filter((id) => !topOrder.includes(id))];
+  };
+  const shiftTop = (id: string, delta: -1 | 1): void => {
+    const order = orderedTop();
+    const i = order.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j]!, order[i]!];
+    setTopOrder(order);
+  };
+
   function resolve(shuffleAfter: boolean): void {
     hoverPreview(null);
     send({
       type: 'RESOLVE_LOOK',
       lookId: pending!.lookId,
-      top: idsIn('top'),
+      top: orderedTop(),
       bottom: idsIn('bottom'),
       toHand: idsIn('hand'),
       toGraveyard: idsIn('graveyard'),
@@ -770,6 +791,55 @@ export function LookModal(): React.ReactElement | null {
             </aside>
           )}
         </div>
+
+        {/*
+          L'ordre du dessus, réglable. Seulement quand il a un sens : au moins
+          deux cartes remises dessus, et pas sur une fouille, que suit un
+          mélange.
+        */}
+        {!isSearch && orderedTop().length > 1 && (
+          <div
+            className="flex flex-wrap items-center gap-1.5 border-t border-white/10 bg-slate-900/60 px-5 py-2 text-xs shrink-0"
+            data-test="look-top-order"
+          >
+            <span className="mr-1 font-medium text-slate-400">{t('consult.topOrder')}</span>
+            {orderedTop().map((id, i, all) => {
+              const card = cards.find((c) => c.id === id);
+              const name = card
+                ? (localizedCardName(localizedCard(card.scryfallId, language), cardMeta(card.scryfallId)?.name) ??
+                  cardName(card.scryfallId))
+                : '';
+              return (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-0.5 rounded-md border border-slate-700 bg-slate-800/80 py-0.5 pl-1.5 pr-0.5 text-slate-200"
+                  data-test="look-top-item"
+                >
+                  <span className="mr-1 font-bold tabular-nums text-sky-300">{i + 1}.</span>
+                  {name}
+                  <button
+                    type="button"
+                    disabled={i === 0}
+                    aria-label={t('consult.moveUp')}
+                    className="ml-1 rounded px-1 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-30"
+                    onClick={() => shiftTop(id, -1)}
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    disabled={i === all.length - 1}
+                    aria-label={t('consult.moveDown')}
+                    className="rounded px-1 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-30"
+                    onClick={() => shiftTop(id, 1)}
+                  >
+                    →
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         {/* Pied de page : Synthèse des choix & Validation */}
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-slate-900/80 px-5 py-3.5 shrink-0">

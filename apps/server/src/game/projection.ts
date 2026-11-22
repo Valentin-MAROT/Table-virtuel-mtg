@@ -16,6 +16,7 @@ import type {
   Snapshot,
   ZoneRef,
 } from '@mtg/shared';
+import { projectTreachery } from './treachery.js';
 import { canSeeIdentity, isEnumerableZone, isPublicZone, type GameObjectState, type GameState, type SeatState } from './state.js';
 
 /** Vue publique : identité comprise. N'appeler qu'après `canSeeIdentity`. */
@@ -222,6 +223,11 @@ export function projectSnapshot(state: GameState, seat: SeatId | null): Snapshot
   };
 
   if (topReveals.length > 0) snapshot.topReveals = topReveals;
+
+  // Les identités Treachery, filtrées pour ce siège par leur propre règle de
+  // visibilité : la sienne, et celles qui sont face visible.
+  const treachery = projectTreachery(state, seat);
+  if (treachery) snapshot.treachery = treachery;
 
   if (pending) {
     snapshot.pendingLook = {

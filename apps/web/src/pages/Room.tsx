@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { DeckSummary, PublicCardView } from '@mtg/shared';
+import { TREACHERY_MIN_SEATS, seatCap, type DeckSummary, type PublicCardView } from '@mtg/shared';
 import { api, type Me } from '../lib/api.js';
 import { useGame } from '../store/game.js';
 import { NARROW_WIDTH, Table, highlightCards } from '../components/Table.js';
@@ -23,14 +23,20 @@ import { LegalFooter } from '../components/LegalFooter.js';
 import { Wordmark } from '../components/Mark.js';
 import { CardPreview } from '../components/CardPreview.js';
 import { TokenShelf } from '../components/TokenShelf.js';
+import { rememberSeatDeck } from '../lib/shelf.js';
 import { TableMenu } from '../components/TableMenu.js';
 import { LeaveTable } from '../components/LeaveTable.js';
 import { TurnOrder } from '../components/TurnOrder.js';
+import { TreacheryPanel, treacheryCanStart } from '../components/TreacheryPanel.js';
 import { TableClosed } from '../components/TableClosed.js';
 import { PreGameDeck } from '../components/PreGameDeck.js';
 import { PrintingPicker } from '../components/PrintingPicker.js';
 import { ManaPool } from '../components/ManaPool.js';
 import { hasSeatToken } from '../net/socket.js';
+import { landingSpots } from '../lib/landing.js';
+import { MulliganBar } from '../components/MulliganBar.js';
+import { StateWarnings } from '../components/StateWarnings.js';
+import { useMulliganPending } from '../lib/mulliganPending.js';
 import { AccountModal } from '../components/AccountModal.js';
 import { useT } from '../lib/i18n/index.js';
 
@@ -52,6 +58,7 @@ async function createQuickToken(name: string, send: ReturnType<typeof useGame.ge
 }
 
 export function RoomPage(): React.ReactElement {
+  const mulliganPending = useMulliganPending() !== null;
   const { code = '' } = useParams();
   const connect = useGame((s) => s.connect);
   const disconnect = useGame((s) => s.disconnect);
@@ -113,6 +120,15 @@ export function RoomPage(): React.ReactElement {
   const columns = !narrow || drawer;
   /** Les sièges qui n'ont pas encore de deck : lancer la partie leur est dû. */
   const waitingForDecks = seats.filter((seat) => !seat.deckName).map((seat) => seat.displayName);
+  /**
+   * Treachery ne distribue des identités qu'à partir de quatre joueurs : en
+   * deçà le serveur refuse de lancer, et l'on dit donc combien il en manque
+   * plutôt que d'offrir un bouton qui sera refusé.
+   */
+  const missingPlayers =
+    room?.mode === 'TREACHERY' && !treacheryCanStart(seats.length)
+      ? Math.max(0, TREACHERY_MIN_SEATS - seats.length)
+      : 0;
   useShortcuts(() => setHelp(true));
 
   useEffect(() => {
@@ -265,8 +281,14 @@ export function RoomPage(): React.ReactElement {
       </div>
 
       {columns && (
-      <div className="pointer-events-none absolute left-3 top-16 z-10 w-72 space-y-2">
+      <div
+        className="hud-column pointer-events-none absolute left-3 top-16 z-10 flex w-72 flex-col gap-2"
+        // 3 rem en bas : la place des boutons de cadrage, qui sont en `fixed`.
+        style={{ maxHeight: 'calc(100vh - 4rem - 3rem)' }}
+      >
         <TurnOrder />
+        <TreacheryPanel />
+        <StateWarnings onHighlight={highlightCards} />
         <DiceBar />
         <ActionLog onHighlight={highlightCards} />
       </div>
@@ -274,8 +296,13 @@ export function RoomPage(): React.ReactElement {
 
       {columns && (
       <div
-        className="pointer-events-none absolute top-16 z-10 flex w-60 flex-col gap-2"
-        style={{ right: 12 + rightInset }}
+        className="hud-column pointer-events-none absolute top-16 z-10 flex w-60 flex-col gap-2"
+        // La réserve de mana est en `fixed` dans le coin : elle publie sa
+        // hauteur (`--mana-pool-h`), et la colonne s'arrête au-dessus d'elle.
+        style={{
+          right: 12 + rightInset,
+          maxHeight: 'calc(100vh - 4rem - var(--mana-pool-h, 0px) - 1.5rem)',
+        }}
       >
         <PlayerPanel />
         <TokenShelf onSearch={() => setTokenSearch(true)} />
@@ -294,9 +321,11 @@ export function RoomPage(): React.ReactElement {
               cliquer dans le vide.
             */}
             <span className="mr-3 text-slate-400">
-              {waitingForDecks.length === 0
-                ? "La partie n'a pas commencé."
-                : `Deck en cours de chargement : ${waitingForDecks.join(', ')}.`}
+              {waitingForDecks.length > 0
+                ? `Deck en cours de chargement : ${waitingForDecks.join(', ')}.`
+                : missingPlayers > 0
+                  ? t('treachery.lobbyNeed', { count: missingPlayers })
+                  : "La partie n'a pas commencé."}
             </span>
             {/*
               Le dernier moment où le deck se compose : une fois lancé, il n'y a
@@ -313,16 +342,24 @@ export function RoomPage(): React.ReactElement {
             <button
               className="rounded bg-sky-600 px-3 py-1 font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
               data-test="start-game"
-              disabled={waitingForDecks.length > 0}
+              disabled={waitingForDecks.length > 0 || missingPlayers > 0}
               onClick={() => send({ type: 'START_GAME' })}
             >
               Lancer la partie
             </button>
           </div>
         )}
+        <MulliganBar />
         <Hand
           onCardDoubleClick={(card) =>
-            send({ type: 'MOVE_CARD', cardId: card.id, to: { seat: mySeat, kind: 'BATTLEFIELD' }, x: 60, y: 60 })
+            // Pendant un mulligan, la main se trie, elle ne se joue pas.
+            mulliganPending ||
+            send({
+              type: 'MOVE_CARD',
+              cardId: card.id,
+              to: { seat: mySeat, kind: 'BATTLEFIELD' },
+              ...landingSpots(mySeat, 1)[0]!,
+            })
           }
         />
       </div>
@@ -442,8 +479,8 @@ function writeDraft(code: string, draft: LobbyDraft): void {
  * L'état de la table, écrit en français et non en « 0 joueur(s) » : un pluriel
  * entre parenthèses est une note du développeur, pas une phrase.
  */
-function attendance(count: number): string {
-  const free = Math.max(0, 4 - count);
+function attendance(count: number, cap: number): string {
+  const free = Math.max(0, cap - count);
   const here =
     count === 0 ? 'personne encore' : count === 1 ? '1 joueur assis' : `${count} joueurs assis`;
   const left = free === 0 ? 'table complète' : free === 1 ? '1 place libre' : `${free} places libres`;
@@ -453,6 +490,7 @@ function attendance(count: number): string {
 function Lobby({ code }: { code: string }): React.ReactElement {
   const send = useGame((s) => s.send);
   const seats = useGame((s) => s.seats);
+  const mode = useGame((s) => s.room?.mode);
   const status = useGame((s) => s.status);
   const restored = useRef(readDraft(code));
   const [name, setName] = useState(restored.current?.name ?? '');
@@ -501,9 +539,15 @@ function Lobby({ code }: { code: string }): React.ReactElement {
   }
 
   const taken = new Set(seats.map((s) => s.seatIndex));
-  const firstFree = [...Array(8).keys()].find((i) => !taken.has(i)) ?? 0;
+  // Le plafond est celui du mode : quatre sièges, huit en Treachery. Tant que
+  // le mode n'est pas connu (premier rendu, avant le `hello`), on s'en tient à
+  // quatre — le serveur refuserait de toute façon un index hors plafond.
+  const cap = seatCap(mode ?? 'COMMANDER');
+  const firstFree = [...Array(cap).keys()].find((i) => !taken.has(i)) ?? 0;
 
   function sit(): void {
+    // L'étagère à jetons suit le deck enregistré : on note lequel on charge.
+    rememberSeatDeck(code, deckId || null);
     send({
       type: 'SIT_DOWN',
       seatIndex: firstFree,
@@ -530,7 +574,7 @@ function Lobby({ code }: { code: string }): React.ReactElement {
           {code}
         </h1>
         <p className="mt-3 text-[0.92rem] text-[color:var(--site-floor-dim)]">
-          {status === 'open' ? `Code de la table · ${attendance(seats.length)}` : 'Connexion à la table…'}
+          {status === 'open' ? `Code de la table · ${attendance(seats.length, cap)}` : 'Connexion à la table…'}
         </p>
 
         {seats.length > 0 && (

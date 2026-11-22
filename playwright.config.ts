@@ -16,5 +16,10 @@ export default defineConfig({
     baseURL: process.env['E2E_BASE_URL'] ?? 'http://localhost:3000',
     trace: 'retain-on-failure',
     ...devices['Desktop Chrome'],
+    // Les scénarios cherchent les libellés français. Le lanceur de tests ouvre
+    // sinon le navigateur en `en-US`, et depuis que l'interface suit la langue
+    // du navigateur tout s'arrêtait à l'accueil, sur un bouton devenu
+    // « Create the table and get the link ».
+    locale: 'fr-FR',
   },
 });

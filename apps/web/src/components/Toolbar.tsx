@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGame } from '../store/game.js';
 import { sortedHand } from '../lib/handSort.js';
 import { cardMeta } from '../lib/cards.js';
 import { isLandTypeLine, landSlots, loadLandLayout } from '../lib/landLayout.js';
 import { askConfirm, askNumber, askText, openDialog } from './Dialog.js';
+import { mulliganWithConfirm } from '../lib/mulligan.js';
 import { useT } from '../lib/i18n/index.js';
 
 /** Barre d'actions haut-droite, calquée sur la table de référence. */
@@ -221,7 +222,33 @@ export function Toolbar({
             >
               Piocher X…
             </MenuItem>
-            <MenuItem onClick={() => { send({ type: 'MULLIGAN' }); close(); }}>Mulligan</MenuItem>
+            <MenuItem onClick={() => { close(); void mulliganWithConfirm(send); }}>Mulligan</MenuItem>
+            <MenuItem onClick={() => { close(); void mulliganWithConfirm(send, true); }}>Mulligan gratuit</MenuItem>
+            {/*
+              Monarque et initiative : un seul détenteur à la fois, le serveur
+              les retire à l'ancien (`EXCLUSIVE_COUNTERS`). On les prend pour
+              soi — c'est presque toujours celui qui les gagne qui clique.
+            */}
+            {(['monarch', 'initiative'] as const).map((kind) => {
+              const held = (useGame.getState().seats.find((s) => s.id === mySeat)?.playerCounters ?? []).some(
+                (c) => c.kind === kind,
+              );
+              const label =
+                kind === 'monarch'
+                  ? held ? 'Ne plus être le monarque' : '👑 Devenir le monarque'
+                  : held ? 'Rendre l’initiative' : '🏰 Prendre l’initiative';
+              return (
+                <MenuItem
+                  key={kind}
+                  onClick={() => {
+                    close();
+                    send({ type: 'SET_PLAYER_COUNTER', seat: mySeat, kind, value: held ? 0 : 1 });
+                  }}
+                >
+                  {label}
+                </MenuItem>
+              );
+            })}
             <MenuItem
               onClick={() => {
                 /*
@@ -486,10 +513,25 @@ export function Toolbar({
 }
 
 function Menu({ children, onClose }: { children: React.ReactNode; onClose: () => void }): React.ReactElement {
+  // Échap ferme, comme pour tout autre menu de la table.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <>
-      <div className="fixed inset-0 z-10" onClick={onClose} />
-      <div className="absolute right-0 z-20 mt-1.5 w-60 overflow-hidden rounded-xl border border-slate-700/90 bg-slate-900/95 py-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100">
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/*
+        Borné à la fenêtre, et défilant : le menu Actions compte une vingtaine
+        d'entrées, et sur un portable (650 px utiles) les dernières — Concéder,
+        les raccourcis — tombaient hors de l'écran, sans moyen de les atteindre.
+        `z-40` : au-dessus du rail de main (`z-20`) et de la réserve de mana
+        (`z-30`), qui le recouvraient.
+      */}
+      <div className="scrollbar-thin absolute right-0 z-40 mt-1.5 max-h-[calc(100vh-4.5rem)] w-60 overflow-y-auto rounded-xl border border-slate-700/90 bg-slate-900/95 py-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100">
         {children}
       </div>
     </>
@@ -519,7 +561,7 @@ function MenuItem({
 
 /** Pastilles d'aléa : tactiles, violet moderne, bordure subtile */
 const DICE =
-  'flex-1 rounded-lg border border-purple-500/40 bg-purple-900/60 hover:bg-purple-800/80 px-2 py-1.5 text-xs font-semibold text-purple-100 shadow-sm backdrop-blur transition-all active:scale-95 text-center';
+  'flex-auto whitespace-nowrap rounded-lg border border-purple-500/40 bg-purple-900/60 hover:bg-purple-800/80 px-2 py-1.5 text-xs font-semibold text-purple-100 shadow-sm backdrop-blur transition-all active:scale-95 text-center';
 
 export function DiceBar(): React.ReactElement {
   const send = useGame((s) => s.send);
@@ -546,7 +588,7 @@ export function DiceBar(): React.ReactElement {
           });
         }}
       >
-        Dé…
+        Autre dé…
       </button>
       <button
         className={DICE}

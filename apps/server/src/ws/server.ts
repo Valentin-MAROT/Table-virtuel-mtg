@@ -6,7 +6,7 @@
  * que transporter des intents vers la room et des messages vers le client.
  */
 import type { FastifyInstance } from 'fastify';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { ulid } from 'ulid';
 import {
   CLOSE_PROTOCOL_MISMATCH,
@@ -87,6 +87,29 @@ async function handleConnection(
   code: string,
   cookieHeader: string | undefined,
 ): Promise<void> {
+  /*
+   * **On écoute avant d'attendre quoi que ce soit.**
+   *
+   * Trouver la table puis la session, c'est deux allers-retours à la base, et
+   * l'écouteur de messages n'était posé qu'après eux. Or le client envoie son
+   * `hello` à l'instant où le socket s'ouvre : arrivé pendant ces attentes, il
+   * n'avait personne pour le recevoir — un `EventEmitter` ne garde rien pour
+   * plus tard — et il était **perdu sans bruit**. Le client se croyait
+   * connecté, le serveur ne l'avait jamais salué, et le premier geste du
+   * joueur (s'asseoir) revenait en « hello attendu d'abord », fatal.
+   *
+   * La course se gagne ou se perd à la latence : derrière Internet le `hello`
+   * met plus longtemps que la base et tout va bien, sur un réseau local il
+   * arrive le premier. Un compte connecté y était plus exposé qu'un invité,
+   * la recherche de session ajoutant une requête. On met donc de côté ce qui
+   * arrive pendant la préparation, et on le rejoue une fois l'écouteur posé.
+   */
+  const early: RawData[] = [];
+  const stash = (raw: RawData): void => {
+    early.push(raw);
+  };
+  ws.on('message', stash);
+
   const room = await getRoom(code);
   if (!room) {
     send(ws, { t: 'error', code: 'ERR_ROOM_NOT_FOUND', message: 'Table inconnue.', fatal: true });
@@ -107,6 +130,9 @@ async function handleConnection(
     missedPongs: 0,
   };
   (ws as WebSocket & { _conn?: Connection })._conn = conn;
+  // Le client a pu repartir pendant la préparation : `close` est déjà passé,
+  // personne ne retirerait plus cette connexion de la table.
+  if (ws.readyState !== ws.OPEN) return;
   room.addConnection(conn);
 
   let greeted = false;
@@ -116,7 +142,7 @@ async function handleConnection(
     conn.missedPongs = 0;
   });
 
-  ws.on('message', (raw) => {
+  const onMessage = (raw: RawData): void => {
     void (async () => {
       let parsed: unknown;
       try {
@@ -209,7 +235,11 @@ async function handleConnection(
     })().catch((err: unknown) => {
       app.log.error({ err }, 'Erreur de traitement WebSocket');
     });
-  });
+  };
+  ws.off('message', stash);
+  ws.on('message', onMessage);
+  // Ce qui est arrivé pendant la préparation est rejoué, dans l'ordre.
+  for (const raw of early) onMessage(raw);
 
   ws.on('close', () => {
     room.removeConnection(conn.id);

@@ -17,6 +17,7 @@ import type {
   ZoneKind,
   ZoneRef,
 } from '@mtg/shared';
+import type { TreacheryState } from './treachery.js';
 
 /** Données de carte figées au lancement, issues du DeckSnapshot. */
 export interface CardData {
@@ -179,6 +180,19 @@ export interface GameState {
   log: LogEntry[];
   createdAt: number;
   lastActivityAt: number;
+  /**
+   * Le dernier commandant sorti de sa zone, tant que son joueur n'a rien fait
+   * d'autre. S'il revient aussitôt en zone de commandement, c'était une fausse
+   * manœuvre et la taxe comptée à sa sortie est rendue (`engine.ts`,
+   * `commanderReturn`). Effacé au premier autre intent de ce siège.
+   */
+  recentCast?: { seat: SeatId; objectId: ObjectId; at: number };
+  /**
+   * Identités de la partie Treachery en cours, ou `undefined` : avant le
+   * lancement, après une relance, et dans tous les autres modes. Rien ici ne
+   * sort tel quel — voir `treachery.ts`, `projectTreachery`.
+   */
+  treachery?: TreacheryState;
 }
 
 export function zoneKey(zone: ZoneRef): string {
@@ -301,5 +315,7 @@ export const SEAT_COLORS = [
 ] as const;
 
 export function startingLife(mode: GameMode): number {
-  return mode === 'COMMANDER' || mode === 'DRAFT' ? 40 : 20;
+  // Treachery se joue en Commander : 40 points de vie (907.6). Ce qu'une carte
+  // d'identité y ajoute est l'affaire du joueur, comme tout effet de carte.
+  return mode === 'COMMANDER' || mode === 'DRAFT' || mode === 'TREACHERY' ? 40 : 20;
 }

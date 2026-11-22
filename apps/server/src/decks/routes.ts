@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { DECK_ZONES } from '@mtg/shared';
+import { DECK_ZONES, TOKEN_SHELF_MAX, sanitizeTokenShelf } from '@mtg/shared';
 import { prisma } from '../db.js';
 import { requireUser } from '../auth/guard.js';
 import { DeckImportError } from '../import/archidekt.js';
@@ -115,6 +115,41 @@ export async function deckRoutes(app: FastifyInstance): Promise<void> {
     });
     if (count === 0) return reply.code(404).send({ error: 'NOT_FOUND' });
     return reply.send({ ok: true });
+  });
+
+  /**
+   * L'étagère à jetons du deck, remplacée en entier.
+   *
+   * Une route à part plutôt qu'un champ de plus dans le `PATCH` : elle est
+   * écrite **en pleine partie**, à chaque jeton rangé, et ne doit pas faire
+   * remonter le deck en tête de « Mes decks » comme s'il avait été modifié —
+   * `updatedAt` est donc reconduit tel quel. La copie depuis un autre deck
+   * passe par ici aussi : le client fusionne (`mergeTokenShelves`) et envoie
+   * le résultat, les deux decks étant de toute façon les siens.
+   */
+  app.put('/api/decks/:id/token-shelf', { preHandler: requireUser }, async (request, reply) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(request.params);
+    const body = z
+      .object({
+        items: z
+          .array(z.object({ scryfallId: z.string().min(1).max(64), name: z.string().max(200) }))
+          .max(TOKEN_SHELF_MAX),
+      })
+      .safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: 'INVALID_INPUT' });
+
+    const deck = await prisma.deck.findFirst({
+      where: { id: params.data.id, userId: request.userId! },
+      select: { id: true, updatedAt: true },
+    });
+    if (!deck) return reply.code(404).send({ error: 'NOT_FOUND' });
+
+    const items = sanitizeTokenShelf(body.data.items);
+    await prisma.deck.update({
+      where: { id: deck.id },
+      data: { tokenShelf: items as unknown as object[], updatedAt: deck.updatedAt },
+    });
+    return reply.send({ items });
   });
 
   app.delete('/api/decks/:id', { preHandler: requireUser }, async (request, reply) => {

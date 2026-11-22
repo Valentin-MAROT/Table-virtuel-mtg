@@ -12,7 +12,8 @@
  * un `scryfallId`, jamais un nom de carte, jamais un texte de règles, jamais
  * une image. Le lecteur ira chercher l'impression lui-même, comme la table.
  */
-import type { Label, ObjectId, Rotation, SeatId, ZoneKind, ZoneRef } from '@mtg/shared';
+import type { Label, ObjectId, Rotation, SeatId, TreacheryDistribution, ZoneKind, ZoneRef } from '@mtg/shared';
+import type { TreacheryIdentityState } from '../game/treachery.js';
 import type { CardData, GameObjectState, GameState, SeatState } from '../game/state.js';
 import type { ReplayObject, ReplayOrigin } from './types.js';
 
@@ -176,6 +177,14 @@ export function dumpState(state: GameState): ReplayOrigin {
     zones,
     labels: [...state.labels.values()].map((l) => ({ ...l })),
     logTail: state.log.slice(-200),
+    ...(state.treachery
+      ? {
+          treachery: {
+            distribution: { ...state.treachery.distribution },
+            identities: [...state.treachery.identities.values()].map((i) => ({ ...i })),
+          },
+        }
+      : {}),
   };
 }
 
@@ -227,6 +236,16 @@ export function reviveState(origin: ReplayOrigin): GameState {
     log: origin.logTail,
     createdAt: 0,
     lastActivityAt: 0,
+    ...(origin.treachery
+      ? {
+          treachery: {
+            distribution: origin.treachery.distribution as TreacheryDistribution,
+            identities: new Map(
+              (origin.treachery.identities as TreacheryIdentityState[]).map((i) => [i.seat, { ...i }]),
+            ),
+          },
+        }
+      : {}),
   };
 }
 

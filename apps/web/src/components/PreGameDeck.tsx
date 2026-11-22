@@ -29,6 +29,8 @@ import { localizedCard, localizedCardName, useLocalizationTick } from '../lib/ca
 import { useLanguage } from '../store/prefs.js';
 import { useT } from '../lib/i18n/index.js';
 import { matchesCardQuery } from './ZonePanel.js';
+import { rememberSeatDeck } from '../lib/shelf.js';
+import { reloadTokenShelf } from './TokenShelf.js';
 
 /**
  * Une ligne de liste : un nom, et les exemplaires qui le portent.
@@ -83,6 +85,7 @@ export function PreGameDeck({ onClose }: { onClose: () => void }): React.ReactEl
   const t = useT();
   const send = useGame((s) => s.send);
   const mySeat = useGame((s) => s.mySeat);
+  const roomCode = useGame((s) => s.roomCode);
   const cards = useGame((s) => s.cards);
   const seats = useGame((s) => s.seats);
   const [decks, setDecks] = useState<DeckSummary[]>([]);
@@ -131,8 +134,14 @@ export function PreGameDeck({ onClose }: { onClose: () => void }): React.ReactEl
   }
 
   function loadDeck(): void {
+    if (!deckId && !deckText.trim()) return;
+    // L'étagère à jetons suit le deck enregistré : on note lequel on charge,
+    // et on la fait relire — deux decks peuvent porter le même nom, et le
+    // `DECK_LOADED` qui revient ne suffirait alors pas à la faire changer.
+    if (roomCode) rememberSeatDeck(roomCode, deckId || null);
     if (deckId) send({ type: 'LOAD_DECK', deckId });
-    else if (deckText.trim()) send({ type: 'LOAD_DECK', deckText });
+    else send({ type: 'LOAD_DECK', deckText });
+    reloadTokenShelf();
   }
 
   return (

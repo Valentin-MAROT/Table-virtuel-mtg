@@ -1277,10 +1277,20 @@ autre valeur arrête le script.
 
 ## Décisions de périmètre
 
-- **Quatre joueurs au maximum.** Le mode à huit est retiré (15 septembre 2026).
-  `LIMITS.maxSeats = 4`. Le **mode Treachery** est envisagé pour plus tard, sans
-  priorité ; il faudra alors revoir le plafond **et** la disposition des panneaux
-  ensemble, pas l'un sans l'autre.
+- **Quatre joueurs au maximum, huit en Treachery.** Le mode à huit est retiré
+  (15 septembre 2026) et `LIMITS.maxSeats = 4` reste le plafond de Commander et de
+  Duel. Le **mode Treachery** (11 novembre 2026) porte le sien — quatre à huit, comme
+  le veulent ses règles — et le plafond comme la disposition des panneaux ont été
+  revus **ensemble** : `seatCap(mode)` côté serveur, deux rangées et jusqu'à quatre
+  colonnes côté table. Voir `docs/protocol.md` §15.
+- **Treachery : ce que le mode ne fait pas, et pourquoi.** Le serveur distribue les
+  identités, les retourne et constate la victoire d'une équipe ; il n'applique pas le
+  texte des cartes d'identité (coût de dévoilement, *undercover*, points de vie de
+  départ modifiés, conditions de victoire particulières à une carte). C'est la règle
+  de la table — assister, pas arbitrer — et non un manque. Restent ouverts, sans
+  priorité : le choix des raretés à la création de la table, la variante *Backstab
+  Rumble*, et une traduction française du texte des cartes (la seule base publiée est
+  en anglais).
 
 ## Règles permanentes, à ne jamais enfreindre
 

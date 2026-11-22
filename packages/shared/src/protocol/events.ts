@@ -17,6 +17,11 @@ import type {
   Seq,
   ZoneRef,
 } from './core.js';
+import type {
+  TreacheryDistribution,
+  TreacheryIdentityView,
+  TreacheryTeam,
+} from '../treachery/rules.js';
 
 export type Event =
   // cartes
@@ -76,7 +81,31 @@ export type Event =
   | { type: 'TURN_ENDED'; seat: SeatId; nextSeat: SeatId; turnNumber: number }
   | { type: 'PHASE_CHANGED'; phase: PhaseName }
   | { type: 'GAME_STARTED'; startingSeat: SeatId; snapshotIds: Record<SeatId, string> }
-  | { type: 'GAME_ENDED'; reason: 'CONCEDE' | 'HOST' | 'TIMEOUT'; winners: SeatId[] }
+  /**
+   * `team` n'existe qu'en Treachery, où l'on gagne par équipe : il dit laquelle,
+   * et `winners` en liste les sièges encore assis. Absent partout ailleurs, et
+   * absent aussi d'une partie Treachery arrêtée sans vainqueur.
+   */
+  | { type: 'GAME_ENDED'; reason: 'CONCEDE' | 'HOST' | 'TIMEOUT'; winners: SeatId[]; team?: TreacheryTeam }
+  /**
+   * Treachery : les identités viennent d'être distribuées, ou ne le sont plus.
+   *
+   * `distribution` est la répartition des rôles à cette table — publique, c'est
+   * la règle 907.3d. `null` veut dire « il n'y a plus d'identités » (la partie
+   * est relancée) : le client oublie alors toutes celles qu'il connaissait.
+   */
+  | { type: 'TREACHERY_SETUP'; distribution: TreacheryDistribution | null }
+  /**
+   * Treachery : une identité est portée à la connaissance du destinataire.
+   *
+   * Deux audiences, et rien d'autre ne les distingue : adressée au **seul**
+   * siège concerné, c'est sa propre carte, qu'il regarde en secret
+   * (`unveiled: false`) ; adressée à **tous**, la carte est face visible — le
+   * Leader au lancement, un dévoilement, une élimination, la fin de partie.
+   * Les sièges hors audience reçoivent le `NOTED` de remplissage, comme pour
+   * tout event privé : ils savent qu'un `seq` est passé, pas ce qu'il portait.
+   */
+  | { type: 'IDENTITY_SHOWN'; identity: TreacheryIdentityView }
   | { type: 'CHAT'; seat: SeatId; text: string }
   | { type: 'UNDONE'; undoneSeq: Seq }
   /**
@@ -106,6 +135,13 @@ export interface Snapshot {
    * `cards`, projetée comme tout le reste.
    */
   topReveals?: Array<{ seat: SeatId; toSeats: SeatId[]; cardId: ObjectId | null }>;
+  /**
+   * Treachery, une fois les identités distribuées : la répartition des rôles
+   * (publique) et les identités que **ce** destinataire a le droit de
+   * connaître — la sienne, et toutes celles qui sont face visible. Une
+   * identité encore secrète n'y figure pas, pas même masquée.
+   */
+  treachery?: { distribution: TreacheryDistribution; identities: TreacheryIdentityView[] };
   logTail: LogEntry[];
 }
 

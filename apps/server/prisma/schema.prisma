@@ -36,6 +36,7 @@ enum GameMode {
   DUEL
   PLANECHASE
   DRAFT
+  TREACHERY
 }
 
 enum RoomStatus {
@@ -119,6 +120,11 @@ model Deck {
   /// resynchronisation ne les efface donc jamais.
   playmatUrl    String?
   cardBackUrl   String?
+  /// Étagère à jetons de ce deck : une liste d'impressions (`ShelfToken[]`,
+  /// voir `packages/shared/src/deck/tokenShelf.ts`). Même statut que le tapis
+  /// juste au-dessus — elle nous appartient, la source externe n'en sait rien,
+  /// une resynchronisation ne l'efface pas. Nullable, donc strictement additif.
+  tokenShelf    Json?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

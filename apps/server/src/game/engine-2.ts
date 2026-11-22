@@ -3,9 +3,10 @@
  * Même commutateur que `engine.ts`, séparé pour garder des fichiers lisibles.
  */
 import { ulid } from 'ulid';
-import { isManaCounter } from '@mtg/shared';
-import type { Counter, Intent, LookSummary, ObjectId, PublicCardView, SeatId, ZoneRef } from '@mtg/shared';
+import { isManaCounter, mulliganBottomCount } from '@mtg/shared';
+import type { Counter, Intent, LookSummary, ObjectId, PhaseName, PublicCardView, SeatId, ZoneRef } from '@mtg/shared';
 import { IntentError } from './errors.js';
+import { playerLost, revealIdentity } from './treachery.js';
 import { toLookView, toPublicView } from './projection.js';
 import {
   canSeeIdentity,
@@ -93,6 +94,23 @@ function makeObject(
   list.push(obj.id);
   return obj;
 }
+
+/** Compteurs de joueur à détenteur unique, et la phrase qui dit leur prise. */
+const EXCLUSIVE_COUNTERS: Record<string, string> = {
+  monarch: 'devient le monarque',
+  initiative: 'prend l’initiative',
+};
+
+/** Nom d'une phase dans le journal, qui est écrit en français par le serveur. */
+const PHASE_LABELS: Record<PhaseName, string> = {
+  UNTAP: 'dégagement',
+  UPKEEP: 'entretien',
+  DRAW: 'pioche',
+  MAIN1: 'première phase principale',
+  COMBAT: 'combat',
+  MAIN2: 'seconde phase principale',
+  END: 'fin du tour',
+};
 
 /** Décalage entre deux objets posés d'un même geste, en unités de monde. */
 const FAN_STEP_X = 26;
@@ -598,13 +616,21 @@ export function applyIntentPart2(
         emissions.push(moveEmission(state, obj, from));
       }
 
-      const counter = (seat.playerCounters.get('mulligans') ?? 0) + 1;
-      seat.playerCounters.set('mulligans', counter);
+      // Un mulligan gratuit ne touche pas au compteur : c'est lui qui dit
+      // combien de cartes remettre dessous en gardant la main.
+      const free = intent.free === true;
+      const counter = (seat.playerCounters.get('mulligans') ?? 0) + (free ? 0 : 1);
+      if (counter > 0) seat.playerCounters.set('mulligans', counter);
+      const toBottom = mulliganBottomCount(counter);
       emissions.unshift({
         audience: ALL,
         build: () => ({ type: 'ZONE_SHUFFLED', zone: library, count: shuffledCount }),
         log: {
-          text: `${who} a pris un mulligan (${counter}) — ${counter} carte(s) à remettre dessous`,
+          text: free
+            ? `${who} a pris un mulligan gratuit — ${
+                toBottom === 0 ? 'aucune carte' : `${toBottom} carte(s)`
+              } à remettre dessous`
+            : `${who} a pris un mulligan (${counter}) — ${toBottom} carte(s) à remettre dessous`,
           cardIds: [],
         },
       });
@@ -1084,6 +1110,38 @@ export function applyIntentPart2(
         };
       }
 
+      /*
+       * Monarque et initiative n'ont qu'un détenteur à la fois (CR 724, 725) :
+       * les prendre les retire à celui qui les avait. C'est de la structure,
+       * pas de l'arbitrage — deux monarques ne sont pas un état de jeu, c'est
+       * un compteur oublié. Le journal dit le transfert en une phrase.
+       */
+      const exclusive = EXCLUSIVE_COUNTERS[intent.kind];
+      if (exclusive && intent.value > 0) {
+        const emissions: Emission[] = [];
+        let previous: string | null = null;
+        for (const other of state.seats.values()) {
+          if (other.id === target.id || !other.playerCounters.has(intent.kind)) continue;
+          other.playerCounters.delete(intent.kind);
+          previous = other.displayName;
+          const id = other.id;
+          emissions.push({
+            audience: ALL,
+            build: () => ({ type: 'PLAYER_COUNTER_CHANGED', seat: id, kind: intent.kind, value: 0 }),
+          });
+        }
+        target.playerCounters.set(intent.kind, 1);
+        emissions.push({
+          audience: ALL,
+          build: () => ({ type: 'PLAYER_COUNTER_CHANGED', seat: target.id, kind: intent.kind, value: 1 }),
+          log: {
+            text: `${target.displayName} ${exclusive}${previous ? ` (à la place de ${previous})` : ''}`,
+            cardIds: [],
+          },
+        });
+        return { emissions };
+      }
+
       // Un compteur à zéro disparaît, comme les marqueurs d'une carte : c'est ce
       // qui permet de le retirer, et cela évite d'accumuler des lignes mortes.
       if (intent.value === 0) target.playerCounters.delete(intent.kind);
@@ -1210,13 +1268,41 @@ export function applyIntentPart2(
     }
 
     case 'SET_PHASE': {
+      /*
+       * Déclaratif, comme toujours (§1.1) : rien ne s'enclenche au passage
+       * d'une phase. Mais il s'écrit au journal — c'est ce qui permet de lire,
+       * dans le bloc d'un tour, ce qui s'est passé avant et pendant le combat.
+       */
+      if (state.phase === intent.phase) return { emissions: [] };
       state.phase = intent.phase;
       return {
-        emissions: [{ audience: ALL, build: () => ({ type: 'PHASE_CHANGED', phase: intent.phase }) }],
+        emissions: [
+          {
+            audience: ALL,
+            build: () => ({ type: 'PHASE_CHANGED', phase: intent.phase }),
+            log: { text: `${who} passe à l'étape : ${PHASE_LABELS[intent.phase]}`, cardIds: [] },
+          },
+        ],
       };
     }
 
+    case 'UNVEIL': {
+      const identity = state.treachery?.identities.get(seatId);
+      if (!identity || state.status !== 'PLAYING') {
+        throw new IntentError('ERR_GAME_NOT_STARTED', "Il n'y a pas d'identité à dévoiler.");
+      }
+      if (identity.unveiled) {
+        throw new IntentError('ERR_PAYLOAD', 'Ton identité est déjà dévoilée.');
+      }
+      // Action spéciale (702.TR01c) : pas de pile, pas de retour — et pas
+      // d'annulation, on ne « re-cache » pas ce que toute la table a lu.
+      return { emissions: revealIdentity(state, seatId, 'UNVEIL') };
+    }
+
     case 'CONCEDE': {
+      // Concéder deux fois ne fait pas perdre deux fois : sans cette garde, une
+      // partie Treachery déjà décidée serait recomptée, et rejugée.
+      if (seat.conceded) return { emissions: [] };
       seat.conceded = true;
       const remaining = [...state.seats.values()].filter((s) => !s.conceded);
       const emissions: Emission[] = [
@@ -1226,6 +1312,12 @@ export function applyIntentPart2(
           log: { text: `${who} a concédé`, cardIds: [] },
         },
       ];
+      if (state.treachery) {
+        // Treachery se gagne par équipe, pas en restant seul : l'identité du
+        // perdant est révélée, et c'est elle qui dit si la partie est décidée.
+        emissions.push(...playerLost(state, seatId));
+        return { emissions };
+      }
       if (remaining.length === 1) {
         state.status = 'ENDED';
         emissions.push({

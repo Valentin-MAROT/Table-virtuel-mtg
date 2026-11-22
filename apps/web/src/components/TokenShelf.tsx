@@ -6,40 +6,74 @@
  * `CREATE_TOKEN`. L'étagère elle-même ne contient aucun objet de partie, et le
  * serveur ignore jusqu'à son existence.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import type { DeckSummary } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { scryfallImage } from '../lib/cards.js';
 import { localizedCard, localizedCardName, useLocalizationTick } from '../lib/cardLocalization.js';
-import { resolveCardImage, tokenName } from '../lib/i18n/index.js';
+import { resolveCardImage, tokenName, useT } from '../lib/i18n/index.js';
 import { useLanguage } from '../store/prefs.js';
 import { findDropTarget } from '../lib/drag.js';
-import { loadShelf, saveShelf, type ShelfToken } from '../lib/shelf.js';
+import {
+  fetchDecks,
+  loadLegacyShelf,
+  mergeTokenShelves,
+  readShelf,
+  resolveShelfScope,
+  saveShelf,
+  shelfSources,
+  type ShelfScope,
+  type ShelfSource,
+  type ShelfToken,
+} from '../lib/shelf.js';
 import { TokenNameBand } from './TokenNameBand.js';
 
 /** Position de repli quand on clique sans viser. */
 const DEFAULT_DROP = { x: 60, y: 60 };
 
-let refresh: (() => void) | null = null;
+/**
+ * L'étagère montée, vue de l'extérieur du composant : le menu contextuel d'un
+ * jeton y range une impression, et le salon la fait relire quand on vient de
+ * charger un autre deck.
+ */
+let mounted: {
+  add: (token: ShelfToken) => Promise<boolean>;
+  reload: () => void;
+} | null = null;
 
 /**
  * Ajoute un jeton à l'étagère depuis ailleurs (le menu contextuel d'un jeton).
  * Renvoie `false` si l'impression y était déjà.
  */
 export async function shelveToken(token: ShelfToken): Promise<boolean> {
-  const items = await loadShelf();
-  if (items.some((item) => item.scryfallId === token.scryfallId)) return false;
-  await saveShelf([...items, token]);
-  refresh?.();
-  return true;
+  return mounted ? mounted.add(token) : false;
+}
+
+/** Le deck du siège vient de changer : l'étagère est à relire. */
+export function reloadTokenShelf(): void {
+  mounted?.reload();
 }
 
 export function TokenShelf({ onSearch }: { onSearch: () => void }): React.ReactElement | null {
+  const t = useT();
   const send = useGame((s) => s.send);
   const hoverPreview = useGame((s) => s.hoverPreview);
   const mySeat = useGame((s) => s.mySeat);
+  const roomCode = useGame((s) => s.roomCode);
+  /** Le nom du deck que la table annonce pour notre siège. */
+  const deckName = useGame((s) => s.seats.find((seat) => seat.id === s.mySeat)?.deckName ?? null);
   const viewScale = useGame((s) => s.viewScale);
   const [items, setItems] = useState<ShelfToken[] | null>(null);
+  const [scope, setScope] = useState<ShelfScope | null>(null);
+  const [decks, setDecks] = useState<DeckSummary[]>([]);
+  const [legacy, setLegacy] = useState<ShelfToken[]>([]);
   const [open, setOpen] = useState(true);
+  /** La fenêtre qui liste les étagères à copier est ouverte. */
+  const [copying, setCopying] = useState(false);
+  /** Ce que le dernier geste a donné : « 3 jetons ajoutés », ou un échec d'écriture. */
+  const [notice, setNotice] = useState<string | null>(null);
+  const [reloads, setReloads] = useState(0);
   /*
    * L'étagère ne garde qu'un identifiant et le nom du catalogue — c'est lui qui
    * distingue deux impressions dans le stockage, et il n'a pas à bouger avec la
@@ -53,18 +87,64 @@ export function TokenShelf({ onSearch }: { onSearch: () => void }): React.ReactE
   useLocalizationTick();
   const language = useLanguage();
 
+  /*
+   * L'étagère est celle **du deck chargé à ce siège** : on la relit dès que la
+   * table annonce un autre deck pour nous (`deckName`), et quand le salon nous
+   * dit qu'on vient d'en choisir un (`reloadTokenShelf`) — deux decks peuvent
+   * porter le même nom, et le nom seul ne bougerait pas.
+   */
   useEffect(() => {
+    if (!roomCode) return;
     let alive = true;
-    const reload = (): void => {
-      void loadShelf().then((loaded) => {
-        if (alive) setItems(loaded);
-      });
-    };
-    refresh = reload;
-    reload();
+    void Promise.all([fetchDecks(), loadLegacyShelf()]).then(([list, old]) => {
+      if (!alive) return;
+      const next = resolveShelfScope(roomCode, deckName, list);
+      setDecks(list);
+      setLegacy(old);
+      setScope(next);
+      setItems(readShelf(next, list));
+      setCopying(false);
+      setNotice(null);
+    });
     return () => {
       alive = false;
-      if (refresh === reload) refresh = null;
+    };
+  }, [roomCode, deckName, reloads]);
+
+  /** Écrit l'étagère : l'affichage d'abord, le stockage ensuite. */
+  async function commit(next: ShelfToken[]): Promise<void> {
+    if (!scope) return;
+    setItems(next);
+    const saved = await saveShelf(scope, next);
+    if (saved === null) return setNotice(t('shelf.saveFailed'));
+    // La liste des decks sert de source aux copies : elle doit suivre.
+    if (scope.kind === 'DECK') {
+      setDecks((list) =>
+        list.map((deck) => (deck.id === scope.deckId ? { ...deck, tokenShelf: saved } : deck)),
+      );
+    }
+  }
+
+  /*
+   * Ce que l'extérieur peut demander à l'étagère montée. La référence est
+   * rafraîchie à chaque rendu : `add` doit lire l'étagère **courante**, pas
+   * celle du rendu où l'effet a été posé.
+   */
+  const latest = useRef({ items, commit });
+  latest.current = { items, commit };
+  useEffect(() => {
+    const handle = {
+      add: async (token: ShelfToken): Promise<boolean> => {
+        const current = latest.current.items;
+        if (!current || current.some((item) => item.scryfallId === token.scryfallId)) return false;
+        await latest.current.commit([...current, token]);
+        return true;
+      },
+      reload: () => setReloads((n) => n + 1),
+    };
+    mounted = handle;
+    return () => {
+      if (mounted === handle) mounted = null;
     };
   }, []);
 
@@ -72,7 +152,24 @@ export function TokenShelf({ onSearch }: { onSearch: () => void }): React.ReactE
   // qu'elle a armé ne doit pas lui survivre.
   useEffect(() => () => hoverPreview(null), [hoverPreview]);
 
-  if (!mySeat || items === null) return null;
+  if (!mySeat || items === null || scope === null) return null;
+
+  /** Les étagères qui apporteraient quelque chose à la nôtre. */
+  const sources = shelfSources(
+    decks,
+    legacy,
+    { deckId: scope.kind === 'DECK' ? scope.deckId : null, items },
+    t('shelf.legacy'),
+  );
+
+  /** Copie en un clic : ce qui manque est ajouté, rien n'est retiré. */
+  async function copyFrom(source: ShelfSource): Promise<void> {
+    const merged = mergeTokenShelves(items!, source.items);
+    await commit(merged.items);
+    setCopying(false);
+    setNotice(t('shelf.copied', { count: merged.added }));
+  }
+
 
   function create(token: ShelfToken, at: { x: number; y: number }): void {
     send({ type: 'CREATE_TOKEN', scryfallId: token.scryfallId, x: at.x, y: at.y });
@@ -119,14 +216,12 @@ export function TokenShelf({ onSearch }: { onSearch: () => void }): React.ReactE
     const to = from + direction;
     if (from < 0 || to < 0 || to >= list.length) return;
     [list[from], list[to]] = [list[to]!, list[from]!];
-    setItems(list);
-    await saveShelf(list);
+    await commit(list);
   }
 
   async function remove(scryfallId: string): Promise<void> {
     const next = items!.filter((item) => item.scryfallId !== scryfallId);
-    setItems(next);
-    await saveShelf(next);
+    await commit(next);
   }
 
   return (
@@ -134,27 +229,65 @@ export function TokenShelf({ onSearch }: { onSearch: () => void }): React.ReactE
       className="pointer-events-auto w-60 rounded-xl border border-slate-700 bg-slate-900/90 text-sm shadow-xl backdrop-blur-md overflow-hidden"
       data-test="token-shelf"
     >
-      <header className="flex items-center justify-between border-b border-slate-800/90 px-3.5 py-2 text-xs bg-slate-950/40">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-800/90 px-3.5 py-2 text-xs bg-slate-950/40">
         <button className="font-bold uppercase tracking-wider text-slate-300 text-[10px] hover:text-white transition-colors flex items-center gap-1.5" onClick={() => setOpen((v) => !v)}>
-          <span>Étagère à jetons</span>
+          <span>{t('shelf.title')}</span>
           <span className="text-slate-400 text-xs">{open ? '▾' : '▸'}</span>
         </button>
-        <button
-          className="rounded-md bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2 py-0.5 text-xs font-bold border border-slate-700 transition-colors"
-          onClick={onSearch}
-          data-test="token-search"
-          title="Chercher un jeton (+)"
-        >
-          +
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            className="rounded-md bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2 py-0.5 text-xs font-bold border border-slate-700 transition-colors"
+            onClick={onSearch}
+            data-test="token-search"
+            title="Chercher un jeton (+)"
+          >
+            +
+          </button>
+        </div>
       </header>
 
       {open && (
         <div className="grid grid-cols-3 gap-2 p-2.5">
-          {items.length === 0 && (
-            <p className="col-span-3 py-2 text-center text-[11px] text-slate-500">
-              Vide. Clic droit sur un jeton en jeu pour l'y ranger.
+          {/*
+            À quoi cette étagère est attachée. C'est la première chose à dire :
+            elle change avec le deck, et une étagère qui se vide « toute seule »
+            quand on change de deck doit dire pourquoi.
+          */}
+          <p
+            className="col-span-3 truncate text-[11px] text-slate-400"
+            data-scope={scope.kind}
+            data-test="shelf-scope"
+            title={scope.kind === 'DECK' ? scope.deckName : t('shelf.ofTableHint')}
+          >
+            {scope.kind === 'DECK' ? t('shelf.ofDeck', { name: scope.deckName }) : t('shelf.ofTable')}
+          </p>
+          {notice && (
+            <p className="col-span-3 text-[11px] text-sky-300" data-test="shelf-notice">
+              {notice}
             </p>
+          )}
+          {items.length === 0 && (
+            <p className="col-span-3 py-1 text-center text-[11px] text-slate-500">
+              {t('shelf.empty')}
+            </p>
+          )}
+          {/*
+            Copier l'étagère d'un autre deck : **un bouton, et rien d'autre
+            ici**. La liste des étagères s'ouvre dans sa fenêtre, où elle a la
+            place de montrer ce que chacune contient — dans les 240 px de cette
+            colonne, elle poussait les jetons hors de vue. Le bouton n'existe
+            que s'il y a quelque chose à copier.
+          */}
+          {sources.length > 0 && (
+            <button
+              aria-haspopup="dialog"
+              className="col-span-3 rounded-md border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:border-sky-600 hover:bg-slate-700/70 hover:text-white"
+              data-test="shelf-copy"
+              onClick={() => setCopying(true)}
+              type="button"
+            >
+              {t('shelf.copy')}
+            </button>
           )}
           {items.map((token, index) => {
             const localized = localizedCard(token.scryfallId, language);
@@ -239,6 +372,133 @@ export function TokenShelf({ onSearch }: { onSearch: () => void }): React.ReactE
           })}
         </div>
       )}
+      {copying && sources.length > 0 && (
+        <ShelfCopyModal
+          onClose={() => setCopying(false)}
+          onPick={(source) => void copyFrom(source)}
+          sources={sources}
+          target={scope.kind === 'DECK' ? scope.deckName : null}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * La fenêtre de copie : les autres étagères, chacune avec ce qu'elle apporte.
+ *
+ * Un clic sur une étagère la copie et referme. Aucune confirmation : copier
+ * ajoute les jetons qui manquent et n'en retire aucun (`mergeTokenShelves`),
+ * il n'y a donc rien à regretter. Les vignettes sont là pour reconnaître
+ * l'étagère d'un coup d'œil — un nom de deck ne dit pas quels jetons il range.
+ */
+function ShelfCopyModal({
+  sources,
+  target,
+  onPick,
+  onClose,
+}: {
+  sources: ShelfSource[];
+  /** Le deck qui reçoit, ou `null` pour l'étagère de la table. */
+  target: string | null;
+  onPick: (source: ShelfSource) => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const t = useT();
+  const language = useLanguage();
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Par portail : le panneau porte un `backdrop-filter`, et un ancêtre filtré
+  // devient le repère de ses descendants `fixed` — la fenêtre se serait
+  // affichée dans la colonne (même raison que la carte d'identité).
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+      data-test="shelf-copy-modal"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        aria-modal="true"
+        className="scrollbar-thin max-h-[90vh] w-[min(34rem,100%)] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold leading-tight text-slate-50">{t('shelf.copy')}</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              {target ? t('shelf.copyInto', { name: target }) : t('shelf.copyIntoTable')}
+            </p>
+          </div>
+          <button
+            className="rounded border border-slate-700 px-3 py-1 text-sm text-slate-200 hover:border-slate-500"
+            data-test="shelf-copy-close"
+            onClick={onClose}
+            type="button"
+          >
+            {t('treachery.close')}
+          </button>
+        </div>
+
+        <ul className="mt-4 space-y-2">
+          {sources.map((source) => (
+            <li key={source.id}>
+              <button
+                className="block w-full rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-left transition-colors hover:border-sky-500 hover:bg-slate-800"
+                data-source={source.id}
+                data-test="shelf-copy-source"
+                onClick={() => onPick(source)}
+                type="button"
+              >
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className={`truncate text-sm font-semibold text-slate-100 ${source.legacy ? 'italic' : ''}`}>
+                    {source.name}
+                  </span>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {t('shelf.tokenCount', { count: source.items.length })}
+                  </span>
+                </span>
+                <span className="mt-2 flex flex-wrap gap-1.5">
+                  {source.items.slice(0, 10).map((token) => {
+                    const localized = localizedCard(token.scryfallId, language);
+                    const shown = tokenName(localizedCardName(localized, token.name), language) ?? token.name;
+                    return (
+                      <img
+                        key={token.scryfallId}
+                        alt={shown}
+                        className="h-16 rounded ring-1 ring-white/10"
+                        draggable={false}
+                        /* URL Scryfall, chargée par le navigateur du joueur. */
+                        src={
+                          resolveCardImage({
+                            card: { scryfallId: token.scryfallId },
+                            localized,
+                            language,
+                            version: 'small',
+                          }).url ?? scryfallImage(token.scryfallId, 'small')
+                        }
+                        title={shown}
+                      />
+                    );
+                  })}
+                  {source.items.length > 10 && (
+                    <span className="self-center text-xs text-slate-400">+{source.items.length - 10}</span>
+                  )}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>,
+    document.body,
   );
 }

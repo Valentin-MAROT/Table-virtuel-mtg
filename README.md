@@ -45,6 +45,9 @@ npm run dev:web    # client Vite sur :5173, proxy vers :3000
 | `npx playwright test` | Tests de bout en bout (voir `e2e/README.md`) |
 | `node scripts/verify-ui.mjs <dossier>` | Recette d'interface dans un vrai navigateur, contre la pile démarrée : glisser-déposer, menus, raccourcis, cohérence des curseurs entre deux clients. Les captures atterrissent dans le dossier passé en argument. |
 | `node scripts/smoke.mjs <dossier>` | Fumée rapide : créer une table, s'asseoir, jouer quelques actions. |
+| `node scripts/probe-treachery.mjs <url> <joueurs> <dossier>` | Une partie Treachery jouée de bout en bout dans de vrais navigateurs : chacun ne voit-il que son identité et celle du Leader, à l'écran **et** dans les trames reçues ? Dévoilement, fin de partie par équipe. |
+| `node scripts/probe-etagere-deck.mjs <url> <dossier>` | L'étagère à jetons appartient-elle bien au deck chargé ? Un vrai compte, trois decks : copie en un clic depuis « Mes decks » et depuis la table, sans rien retirer ; l'étagère suit le deck au rechargement et au changement de deck ; un invité a celle de sa table. |
+| `node scripts/probe-fenetre-courte.mjs <url> <dossier>` | La table sur une fenêtre courte (1280 × 620, 1366 × 650, 1536 × 730) : colonnes, main et réserve de mana se recouvrent-elles ? « Concéder » et le bouton de fermeture de la carte d'identité s'atteignent-ils ? |
 | `node scripts/probe-reglages.mjs` | Le panneau de réglages tient-il dans une fenêtre basse ? Une sonde à part, et non une étape de la recette : la mesure redimensionne la fenêtre, ce qui recadre la caméra et fausse les étapes suivantes d'un monde partagé. |
 
 > **À lire avant de déployer — une ré-ingestion est obligatoire.** La colonne
@@ -163,6 +166,7 @@ implémentation :
 | 6 | Commander — 1 à 4 sièges, matrice dégâts de commandant, taxe, mulligans, tokens, scry / surveil | **fait** |
 | 7 | Confort & Ergonomie — playmats, dos de cartes, zoom HD, consultation/révélation modale, PWA, raccourcis | **fait** |
 | 8 | Extras — Planechase, draft Commander temps réel | *backlog / évolutions futures* |
+| 9 | Treachery — rôles cachés de 4 à 8 joueurs, identités étanches, dévoilement, victoire par équipe | **fait** |
 
 ## Fonctionnalités réalisées & Tenues par construction
 
@@ -171,7 +175,7 @@ implémentation :
 - **Deux cadrages, deux cibles** : « Voir toute la table » cadre la grille des sièges seule, à huit pixels d'écran près ; « Recentrer sur moi » cadre le panneau local au pixel exact. Aucune marge proportionnelle : ce qui reste autour de la table est du letterboxing, pas de la place perdue. Détail et mesures dans `docs/ui-reference.md`, section « Cadrage ».
 - **Mise en page étroite** : sous 900 px de large, le journal et le panneau joueur se replient en tiroir ouvert par un bouton, et la caméra récupère toute la largeur. Les largeurs de bureau ne changent pas.
 - **Orientation « Joueur local toujours en bas » (`lib/seatView.ts`)** : chaque joueur voit son champ de bataille au premier plan sans rotation destructrice, tout en conservant le repère partagé universel pour la précision des curseurs multijoueurs.
-- **Disposition dynamique multi-sièges** : adaptation géométrique sans aucun chevauchement de 1 à 4 joueurs.
+- **Disposition dynamique multi-sièges** : adaptation géométrique sans aucun chevauchement de 1 à 4 joueurs, et jusqu’à 8 en Treachery.
 - **Fonds de table immersifs** :
   - Dallage de pierre haute définition sous licence CC0 (Poly Haven), raccordable et sans couture.
   - Arène illustrée personnalisée et plateau radial calculé procéduralement (`tableBoard.tsx`).

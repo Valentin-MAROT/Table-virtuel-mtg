@@ -27,7 +27,21 @@ test('quatre joueurs convergent sur le même état', async ({ browser }) => {
   await alice!.page.getByRole('button', { name: 'Pile ou face' }).click();
 
   // Tout le monde doit finir sur le même numéro de séquence.
-  const finalSeq = await waitForStore<number>(alice!.page, 'window.__mtg.getState().seq', (s) => s > 10);
+  //
+  // « Fini » veut dire que plus rien n'arrive, pas « au moins dix events » : le
+  // numéro était relevé chez Alice dès le dixième, pendant que les dernières
+  // actions des autres voyageaient encore. Les trois autres le dépassaient
+  // alors d'un ou deux crans et ne lui étaient jamais **égaux** — le scénario
+  // échouait deux fois sur trois sans que rien ne diverge. On attend donc que
+  // la séquence d'Alice ne bouge plus avant de la prendre pour référence.
+  await waitForStore<number>(alice!.page, 'window.__mtg.getState().seq', (s) => s > 10);
+  let finalSeq = -1;
+  for (let calm = 0; calm < 4; ) {
+    const seq = await alice!.page.evaluate(() => (window as unknown as { __mtg: { getState(): { seq: number } } }).__mtg.getState().seq);
+    calm = seq === finalSeq ? calm + 1 : 0;
+    finalSeq = seq;
+    await alice!.page.waitForTimeout(250);
+  }
   for (const seat of seats) {
     await waitForStore<number>(seat.page, 'window.__mtg.getState().seq', (s) => s === finalSeq);
   }

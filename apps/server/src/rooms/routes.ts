@@ -17,7 +17,7 @@ function makeCode(length = 6): string {
 
 const createSchema = z
   .object({
-    mode: z.enum(['COMMANDER', 'DUEL', 'DRAFT']).default('COMMANDER'),
+    mode: z.enum(['COMMANDER', 'DUEL', 'DRAFT', 'TREACHERY']).default('COMMANDER'),
     isPrivate: z.boolean().default(false),
     password: z.string().min(1).max(100).optional(),
   })

@@ -21,7 +21,7 @@ import type {
   ZoneKind,
   ZoneRef,
 } from '@mtg/shared';
-import { LIMITS, ZONE_KINDS } from '@mtg/shared';
+import { LIMITS, TREACHERY_MAX_SEATS, TREACHERY_MIN_SEATS, ZONE_KINDS, seatCap } from '@mtg/shared';
 import {
   applyIntent,
   captureZoneOrders,
@@ -47,6 +47,7 @@ import {
   type SeatState,
 } from './state.js';
 import { reconcileTopReveals } from './topReveal.js';
+import { clearIdentities, dealIdentities, playerLost } from './treachery.js';
 import { ReplayRecorder, frameOf, type ReplaySink } from '../replay/recorder.js';
 import { TokenBucket } from '../lib/throttle.js';
 import type { DeckPrintingChange } from '../decks/printing-sync.js';
@@ -123,6 +124,7 @@ const IRREVERSIBLE_LABELS: Record<string, string> = {
   START_GAME: 'Le lancement de la partie',
   RESTART_GAME: 'Une relance de partie',
   CONCEDE: 'Une concession',
+  UNVEIL: 'Un dévoilement',
 };
 
 /**
@@ -316,10 +318,26 @@ export class Room {
     if (this.state.closed) {
       throw new IntentError('ERR_ROOM_CLOSED', 'Cette table est close.');
     }
-    if (this.state.seats.size >= LIMITS.maxSeats) {
+    const taken = [...this.state.seats.values()].find((s) => s.seatIndex === seatIndex);
+    // Le plafond est celui du mode : quatre, ou huit en Treachery. Il ne vaut
+    // que pour un siège **neuf** — reprendre le sien n'ajoute personne.
+    const cap = seatCap(this.state.mode);
+    if (!taken && (this.state.seats.size >= cap || seatIndex >= cap)) {
       throw new IntentError('ERR_ROOM_FULL', 'La table est complète.');
     }
-    const taken = [...this.state.seats.values()].find((s) => s.seatIndex === seatIndex);
+    /*
+     * **On n'entre pas dans une partie Treachery en cours.** Les identités sont
+     * distribuées au lancement, une par joueur, et leur répartition est
+     * publique : un siège arrivé ensuite n'aurait pas d'identité, ne serait
+     * d'aucune équipe, et fausserait le compte que toute la table tient. Les
+     * autres modes n'ont pas cette contrainte et gardent leur porte ouverte.
+     */
+    if (!taken && this.state.mode === 'TREACHERY' && this.state.status === 'PLAYING') {
+      throw new IntentError(
+        'ERR_GAME_ALREADY_STARTED',
+        'Une partie Treachery est en cours : on ne la rejoint pas en route.',
+      );
+    }
     if (taken) {
       // Un siège déconnecté reste celui de son joueur : sa main et sa
       // bibliothèque sont encore là. On ne le rend qu'à son titulaire —
@@ -365,6 +383,9 @@ export class Room {
     this.state.seats.set(seat.id, seat);
     this.state.hostSeat ??= seat.id;
     conn.seatId = seat.id;
+    // Un nouveau venu à l'index d'un joueur parti n'hérite pas de son identité :
+    // elle ne sert plus qu'au bilan d'une partie finie, et ce bilan est écrit.
+    if (!taken) this.state.treachery?.identities.delete(seat.id);
 
     const seq = this.commit(seat.id, [
       {
@@ -532,7 +553,11 @@ export class Room {
 
     // Partir en cours de partie vaut concession : s'il ne reste qu'un joueur
     // encore en lice, la partie est finie, exactement comme après `CONCEDE`.
-    if (inGame) {
+    if (inGame && this.state.treachery) {
+      // En Treachery on ne gagne pas en restant seul mais par équipe : partir
+      // révèle son identité, et c'est `playerLost` qui dit si c'est fini.
+      emissions.push(...playerLost(this.state, seatId));
+    } else if (inGame) {
       const remaining = [...this.state.seats.values()].filter((s) => !s.conceded);
       if (remaining.length === 1 && remaining[0]) {
         const winner = remaining[0].id;
@@ -843,6 +868,19 @@ export class Room {
       );
     }
 
+    // Treachery distribue une identité par joueur selon une répartition qui
+    // n'existe que de quatre à huit (907.3c) : hors de là, il n'y a rien à
+    // distribuer, et lancer donnerait une partie sans rôles.
+    if (this.state.mode === 'TREACHERY') {
+      const count = this.state.seats.size;
+      if (count < TREACHERY_MIN_SEATS || count > TREACHERY_MAX_SEATS) {
+        throw new IntentError(
+          'ERR_GAME_NOT_STARTED',
+          `Treachery se joue de ${TREACHERY_MIN_SEATS} à ${TREACHERY_MAX_SEATS} joueurs : ${count} à la table.`,
+        );
+      }
+    }
+
     /*
      * **Lancer, c'est repartir d'une table nette.**
      *
@@ -885,11 +923,28 @@ export class Room {
 
     this.state.status = 'PLAYING';
     this.state.turnNumber = 1;
+    // Comme `END_TURN`, et comme le client l'affiche déjà sur `GAME_STARTED` :
+    // un tour commence au dégagement, pas en phase principale.
+    this.state.phase = 'UNTAP';
     const seats = [...this.state.seats.values()].sort((a, b) => a.seatIndex - b.seatIndex);
-    const starting = seats[this.rng.below(seats.length)] ?? seats[0]!;
+    // Une partie lancée sans passer par la relance garderait ses concédés de la
+    // manche d'avant : ils joueraient un tour sur deux sans exister pour
+    // `END_TURN`, et compteraient pour éliminés dès la distribution des rôles.
+    const revived = seats.filter((s) => s.conceded);
+    for (const seat of revived) seat.conceded = false;
+    // En Treachery le Leader commence (907.7) ; ailleurs, le sort.
+    const dealt =
+      this.state.mode === 'TREACHERY' ? dealIdentities(this.state, seats, this.rng) : null;
+    const starting = dealt?.leader ?? seats[this.rng.below(seats.length)] ?? seats[0]!;
     this.state.activeSeat = starting.id;
 
     const emissions: Emission[] = [];
+    for (const seat of revived) {
+      emissions.push({
+        audience: { kind: 'ALL' },
+        build: () => ({ type: 'SEAT_JOINED', seat: this.summarize(seat) }),
+      });
+    }
     for (const id of cleared) {
       emissions.push({ audience: { kind: 'ALL' }, build: () => ({ type: 'CARD_HIDDEN', cardId: id }) });
     }
@@ -956,6 +1011,9 @@ export class Room {
         log: { text: `La partie commence — ${starting.displayName} joue en premier`, cardIds: [] },
       },
       ...emissions,
+      // Après `GAME_STARTED` : le client remet sa table à neuf en le recevant,
+      // les identités doivent donc arriver ensuite.
+      ...(dealt?.emissions ?? []),
     ]);
 
     // Le point zéro du replay est ici : decks mélangés, mains distribuées.
@@ -984,6 +1042,8 @@ export class Room {
     const emissions: Emission[] = [];
     const forgotten: ObjectId[] = [];
     const destroyed: ObjectId[] = [];
+    // Les identités sont celles de la partie qu'on quitte : on redistribuera.
+    const identitiesCleared = clearIdentities(this.state);
 
     // Les clients oublient tout avant la reconstruction : les identifiants des
     // bibliothèques vont changer, ceux des jetons disparaître.
@@ -1114,6 +1174,7 @@ export class Room {
           cardIds: [],
         },
       },
+      ...identitiesCleared,
       ...emissions,
     ]);
   }
@@ -1452,6 +1513,7 @@ export class Room {
          */
         const entry: LogEntry = { seq, at, actor, text: logPayload.text, cardIds: logPayload.cardIds };
         if (logPayload.names) entry.names = logPayload.names;
+        entry.turn = { number: this.state.turnNumber, seat: this.state.activeSeat };
         this.state.log.push(entry);
         if (this.state.log.length > 1000) this.state.log.shift();
         this.pendingLog.push(entry);

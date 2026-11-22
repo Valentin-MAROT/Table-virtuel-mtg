@@ -34,7 +34,7 @@
  * de la place qu'on a à l'écran, qui n'est pas la même sur le portable et sur
  * le bureau — une préférence de compte suivrait le joueur là où elle a tort.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MANA_POOL_SYMBOLS, manaCounterKind, type ManaPoolSymbol } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { manaSymbolUrl } from './ManaCost.js';
@@ -79,8 +79,38 @@ export function ManaPool(): React.ReactElement | null {
   const seats = useGame((s) => s.seats);
   const send = useGame((s) => s.send);
   const [open, setOpen] = useState(readOpen);
+  const box = useRef<HTMLDivElement>(null);
 
   const me = seats.find((s) => s.id === mySeat);
+  const seated = Boolean(me);
+
+  /*
+   * La réserve est en `fixed` dans le coin bas droit, et elle n'a pas une
+   * taille : dépliée elle fait 310 px sur 110, repliée c'est une pastille. Ce
+   * qui l'entoure — la colonne du panneau joueur au-dessus, le rail de main à
+   * gauche — doit lui céder exactement cette place, pas une constante : sur
+   * un portable, dépliée, elle recouvrait l'étagère à jetons et la dernière
+   * carte de la main. Elle publie donc sa boîte, et les voisins la lisent
+   * (`--mana-pool-w`, `--mana-pool-h`).
+   */
+  useEffect(() => {
+    const node = box.current;
+    const root = document.documentElement;
+    if (!node) return;
+    const publish = (): void => {
+      const rect = node.getBoundingClientRect();
+      root.style.setProperty('--mana-pool-w', `${Math.ceil(rect.width)}px`);
+      root.style.setProperty('--mana-pool-h', `${Math.ceil(rect.height)}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--mana-pool-w');
+      root.style.removeProperty('--mana-pool-h');
+    };
+  }, [seated, open]);
   // Un spectateur n'a pas de réserve : il n'a pas de siège.
   if (!me) return null;
 
@@ -127,7 +157,11 @@ export function ManaPool(): React.ReactElement | null {
       table dans la page, et un z-index posé à l'intérieur de la table ne
       pèserait pas contre lui.
     */
-    <div className="fixed bottom-3 right-3 z-30 flex flex-col items-end gap-1" data-test="mana-pool">
+    <div
+      ref={box}
+      className="fixed bottom-3 right-3 z-30 flex flex-col items-end gap-1"
+      data-test="mana-pool"
+    >
       {open ? (
         <div className="w-max rounded-lg border border-edge bg-panel/95 shadow-xl backdrop-blur">
           <div className="flex items-center justify-between gap-3 border-b border-edge px-2.5 py-1.5">
@@ -202,7 +236,7 @@ export function ManaPool(): React.ReactElement | null {
 
                 <div className="flex items-center gap-0.5">
                   <button
-                    className="flex h-4 w-4 items-center justify-center rounded bg-slate-800 text-[11px] leading-none text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-rose-800 hover:text-white disabled:opacity-30 disabled:hover:bg-slate-800"
+                    className="flex h-5 w-5 items-center justify-center rounded bg-slate-800 text-xs leading-none text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-rose-800 hover:text-white disabled:opacity-30 disabled:hover:bg-slate-800"
                     data-test={`mana-minus-${symbol}`}
                     disabled={value === 0}
                     onClick={() => setValue(symbol, value - 1)}
@@ -212,7 +246,7 @@ export function ManaPool(): React.ReactElement | null {
                     −
                   </button>
                   <button
-                    className="flex h-4 w-4 items-center justify-center rounded bg-slate-800 text-[11px] leading-none text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-emerald-800 hover:text-white"
+                    className="flex h-5 w-5 items-center justify-center rounded bg-slate-800 text-xs leading-none text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-emerald-800 hover:text-white"
                     data-test={`mana-plus-${symbol}`}
                     onClick={() => setValue(symbol, value + 1)}
                     title={`Un mana ${LABELS[symbol]} de plus`}

@@ -21,6 +21,7 @@ import type { SeatId, ZoneRef } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { useMenuPlacement } from '../lib/menu.js';
 import { askNumber, openDialog } from './Dialog.js';
+import { mulliganWithConfirm } from '../lib/mulligan.js';
 import { useT } from '../lib/i18n/index.js';
 
 /**
@@ -229,7 +230,8 @@ export function ZoneMenu({
         run: () => window.dispatchEvent(new CustomEvent('mtg:browse-zone', { detail: zone })),
       },
       { label: t('common.shuffle'), separatorBefore: true, run: () => send({ type: 'SHUFFLE', zone }) },
-      { label: t('toolbar.mulligan'), run: () => send({ type: 'MULLIGAN' }) },
+      { label: t('toolbar.mulligan'), run: () => void mulliganWithConfirm(send) },
+      { label: t('toolbar.freeMulligan'), run: () => void mulliganWithConfirm(send, true) },
     );
   } else if (zone.kind === 'COMMAND') {
     entries.push({

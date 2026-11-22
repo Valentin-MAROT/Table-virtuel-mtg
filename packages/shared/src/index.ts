@@ -6,4 +6,7 @@ export * from './protocol/events.js';
 export * from './protocol/messages.js';
 export * from './protocol/schemas.js';
 export * from './deck/types.js';
+export * from './deck/tokenShelf.js';
 export * from './i18n/language.js';
+export * from './treachery/rules.js';
+export * from './treachery/identities.js';

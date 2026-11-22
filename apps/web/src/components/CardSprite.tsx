@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { pendingCounterValue, queueCounterValue, subscribeCounterBatch } from '../lib/counterBatch.js';
 import {
   HIDDEN_ZONES,
   type CardView,
@@ -1340,7 +1341,16 @@ export async function editCounter(cardId: ObjectId, counter: Counter): Promise<v
  * contraire, n'est pas intercepté : il ouvre le menu de la carte, où les mêmes
  * marqueurs sont listés.
  */
-function CounterBadge({ card, counter }: { card: CardView; counter: Counter }): React.ReactElement {
+function CounterBadge({ card, counter: stored }: { card: CardView; counter: Counter }): React.ReactElement {
+  /*
+   * La molette sur la pastille règle le compte d'un cran à la fois — « loyauté
+   * +1 », « charge −1 » sans ouvrir le dialogue. Une rafale de crans ne part
+   * qu'une fois le joueur arrêté (`counterBatch`, comme la vie) : un intent, une
+   * ligne de journal. D'ici là, la pastille affiche la valeur prédite.
+   */
+  const batchKey = `card-counter:${card.id}:${stored.kind}`;
+  const pending = useSyncExternalStore(subscribeCounterBatch, () => pendingCounterValue(batchKey));
+  const counter = pending !== undefined ? { ...stored, value: pending } : stored;
   const pt = ptCounter(counter.kind);
   const computed = computedCounter(counter.kind);
   /*
@@ -1506,6 +1516,19 @@ function CounterBadge({ card, counter }: { card: CardView; counter: Counter }): 
       }}
       onDoubleClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => {
+        // Un marqueur sans valeur (un mot-clé posé) n'a rien à compter : la
+        // molette retombe alors sur le zoom de la table.
+        if (counter.value === undefined || event.deltaY === 0) return;
+        event.stopPropagation();
+        const next = Math.max(0, counter.value + (event.deltaY < 0 ? 1 : -1));
+        queueCounterValue(
+          batchKey,
+          next,
+          (value) => ({ type: 'SET_COUNTER', targetId: card.id, kind: stored.kind, value }),
+          useGame.getState().send,
+        );
+      }}
       type="button"
     >
       {body}

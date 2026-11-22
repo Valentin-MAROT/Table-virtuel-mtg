@@ -22,7 +22,7 @@ import { useEffect, useRef } from 'react';
 import type { CardView, Intent, ObjectId, ZoneRef } from '@mtg/shared';
 import { useGame, zoneKey } from '../store/game.js';
 import { dragPointer, findDropTarget, handInsertIndex, type DropTarget } from '../lib/drag.js';
-import { CARD_HEIGHT, CARD_WIDTH } from '../lib/cards.js';
+import { CARD_HEIGHT, CARD_WIDTH, cardMeta } from '../lib/cards.js';
 import { CardSprite } from './CardSprite.js';
 
 /**
@@ -40,12 +40,54 @@ const GHOST_SCALE = 0.62;
 export function startCardDrag(card: CardView, event: React.PointerEvent): void {
   if (event.button !== 0) return;
   event.stopPropagation();
+  // Le lever d'un appui long émet un appui souris de compatibilité : ce n'est
+  // pas un nouveau geste, et `beginDrag` refermerait le menu qu'on vient d'ouvrir.
+  if (menuJustOpenedByTouch()) return;
   // Surtout pas de `preventDefault()` ici : annuler le `pointerdown` supprime
   // les événements souris de compatibilité, donc `click` et `dblclick` — le
   // double-clic pour engager ne partait jamais. Le glissement d'image et la
   // sélection de texte sont déjà neutralisés par `draggable={false}` et
   // `select-none` sur le sprite.
   useGame.getState().beginDrag(card.id, event.clientX, event.clientY);
+
+  /*
+   * Appui long au doigt = menu de la carte.
+   *
+   * Le clic droit, qui porte presque toutes les actions, n'existe pas sur un
+   * téléphone — et c'est là qu'arrivent souvent les invités. Un doigt posé
+   * sans bouger une demi-seconde ouvre donc le même menu. Un doigt qui bouge
+   * avant reste un glisser-déposer, comme à la souris.
+   */
+  if (event.pointerType === 'touch') {
+    const { clientX: x, clientY: y } = event;
+    window.setTimeout(() => {
+      const state = useGame.getState();
+      if (state.drag?.cardId !== card.id || state.drag.moved) return;
+      state.endDrag();
+      lastDropAt = Date.now(); // le relâchement qui suit n'est pas un clic
+      // Le menu ouvert pose un fond qui se ferme au clic : le `contextmenu` de
+      // l'appui long et le clic du relâchement tomberaient dessus et le
+      // refermeraient aussitôt. On les ignore jusqu'à un peu après le lever.
+      menuGuardUntil = Number.POSITIVE_INFINITY;
+      window.addEventListener(
+        'pointerup',
+        () => {
+          menuGuardUntil = Date.now() + 400;
+        },
+        { once: true },
+      );
+      state.openMenu({ kind: 'CARD', card: state.cards.get(card.id) ?? card, x, y });
+    }, LONG_PRESS_MS);
+  }
+}
+
+/** Durée d'un appui long au doigt. */
+const LONG_PRESS_MS = 500;
+let menuGuardUntil = 0;
+
+/** Le menu vient d'être ouvert au doigt : les clics de fermeture sont ceux du geste. */
+export function menuJustOpenedByTouch(): boolean {
+  return Date.now() < menuGuardUntil;
 }
 
 /**
@@ -157,6 +199,56 @@ function judge(card: CardView, target: DropTarget | null, altKey: boolean): Verd
 }
 
 /**
+ * Le permanent auquel attacher la carte qu'on lâche, s'il y en a un.
+ *
+ * Lâcher un équipement sur une créature, une aura sur un permanent : c'est le
+ * geste d'une vraie table, et il demandait jusqu'ici trois temps (menu,
+ * « Attacher à… », clic sur la cible). On ne le déduit que lorsqu'il n'y a pas
+ * d'autre lecture possible :
+ *
+ * - **une seule carte** tenue — un lot qui passe au-dessus d'une créature se
+ *   déplace, il ne s'attache pas ;
+ * - une carte dont le **type** dit qu'elle s'attache (Aura, Equipment,
+ *   Fortification), lu dans le catalogue — une carte face cachée n'en a pas, et
+ *   ne s'attache donc jamais par ce chemin ;
+ * - un permanent visé **sur le terrain même où l'on dépose** : poser une aura
+ *   chez le voisin reste le geste explicite du menu, comme tout ce qui touche
+ *   à son terrain.
+ *
+ * Un équipement ne vise qu'une créature ; une aura, n'importe quel permanent.
+ * Rien d'autre n'est vérifié, et c'est voulu (protocol §1.1) : la table
+ * s'arbitre, et « Détacher » défait le geste.
+ */
+export function attachHost(
+  card: CardView,
+  clientX: number,
+  clientY: number,
+  zone: ZoneRef,
+): CardView | null {
+  if (zone.kind !== 'BATTLEFIELD' || card.faceDown) return null;
+  const type = cardMeta(card.scryfallId)?.typeLine ?? '';
+  const equipment = /\b(Equipment|Fortification)\b/.test(type);
+  if (!equipment && !/\bAura\b/.test(type)) return null;
+
+  const state = useGame.getState();
+  for (const node of document.elementsFromPoint(clientX, clientY)) {
+    const id = (node as HTMLElement).dataset?.['card'];
+    if (!id || id === card.id) continue;
+    const host = state.cards.get(id);
+    if (!host || zoneKey(host.zone) !== zoneKey(zone)) continue;
+    // Une carte déjà attachée ne porte pas : on vise ce qu'elle décore.
+    if (host.attachedTo) continue;
+    if (equipment) {
+      // Un permanent face cachée est une créature 2/2 (morph, manifeste).
+      const hostType = host.faceDown ? 'Creature' : (cardMeta(host.scryfallId)?.typeLine ?? '');
+      if (!/\bCreature\b/.test(hostType)) return null;
+    }
+    return host;
+  }
+  return null;
+}
+
+/**
  * Ranger sa main : on y insère les cartes tenues à l'endroit visé.
  *
  * Chaque carte part dans son propre `MOVE_CARD` avec un index qui avance :
@@ -197,6 +289,8 @@ export function DragLayer(): React.ReactElement | null {
 
     let frame: number | null = null;
     let altHeld = false;
+    /** Maj tenue : un dépôt sur la bibliothèque va dessous au lieu de dessus. */
+    let shiftHeld = false;
     const paint = (): void => {
       frame = null;
       if (ghost.current) ghost.current.style.transform = ghostTransform();
@@ -216,15 +310,25 @@ export function DragLayer(): React.ReactElement | null {
       const chip = hint.current;
       if (verdict.kind !== 'REORDER' && slot.current) slot.current.style.display = 'none';
       switch (verdict.kind) {
-        case 'OK':
+        case 'OK': {
           markZone(zoneNode(verdict.target.zone), verdict.color);
+          // La pastille annonce ce que le dépôt va **faire**, pas seulement où :
+          // dessus ou dessous de la bibliothèque, ou l'attache qu'il déclenche.
+          let label = verdict.label;
+          if (verdict.target.zone.kind === 'LIBRARY') {
+            label += shiftHeld ? ' — dessous' : ' — dessus (Maj : dessous)';
+          } else if (!(state.selection.has(dragged.id) && state.selection.size > 1)) {
+            const host = attachHost(dragged, dragPointer.x, dragPointer.y, verdict.target.zone);
+            if (host) label = `attacher à ${host.faceDown ? 'cette carte' : (cardMeta(host.scryfallId)?.name ?? 'cette carte')}`;
+          }
           if (chip) {
-            chip.textContent = verdict.label;
+            chip.textContent = label;
             chip.style.background = verdict.color;
             chip.style.display = 'block';
           }
           if (ghost.current) ghost.current.style.opacity = '0.9';
           break;
+        }
         case 'FOREIGN':
           markZone(zoneNode(verdict.target.zone), '#f59e0b');
           if (chip) {
@@ -277,6 +381,7 @@ export function DragLayer(): React.ReactElement | null {
 
     const move = (event: PointerEvent): void => {
       altHeld = event.altKey;
+      shiftHeld = event.shiftKey;
       useGame.getState().updateDrag(event.clientX, event.clientY);
       // Une seule écriture de style par frame, jamais une par événement.
       if (frame === null) frame = window.requestAnimationFrame(paint);
@@ -320,6 +425,8 @@ export function DragLayer(): React.ReactElement | null {
         return;
       }
       const target = verdict.target;
+      /** Bibliothèque : dessus par défaut, dessous avec Maj (comme Cockatrice). */
+      const libraryIndex = event.shiftKey ? ('BOTTOM' as const) : ('TOP' as const);
 
       // Une action groupée ne vaut que si la carte saisie fait partie de la
       // sélection ; sinon, on ne déplace que celle qu'on tient.
@@ -327,6 +434,19 @@ export function DragLayer(): React.ReactElement | null {
         state.selection.has(card.id) && state.selection.size > 1
           ? [...state.selection]
           : [card.id];
+
+      // Lâchée sur un permanent qu'elle peut décorer : on l'y attache. Depuis
+      // la main, elle entre d'abord sur le terrain — le serveur n'attache que
+      // ce qui y est déjà —, à la place de son porteur, sous lequel elle se
+      // rendra de toute façon.
+      const host = group.length === 1 ? attachHost(card, event.clientX, event.clientY, target.zone) : null;
+      if (host) {
+        if (zoneKey(card.zone) !== zoneKey(target.zone)) {
+          state.send({ type: 'MOVE_CARD', cardId: card.id, to: target.zone, x: host.x, y: host.y });
+        }
+        if (card.attachedTo !== host.id) state.send({ type: 'ATTACH', sourceId: card.id, targetId: host.id });
+        return;
+      }
 
       /*
        * Un lot est un lot. Hors du champ de bataille, où chaque carte porte ses
@@ -343,7 +463,7 @@ export function DragLayer(): React.ReactElement | null {
           type: 'MOVE_CARDS',
           cardIds: group,
           to: target.zone,
-          ...(target.zone.kind === 'LIBRARY' ? { index: 'TOP' as const } : {}),
+          ...(target.zone.kind === 'LIBRARY' ? { index: libraryIndex } : {}),
         });
         return;
       }
@@ -399,7 +519,7 @@ export function DragLayer(): React.ReactElement | null {
           cardId: id,
           to: target.zone,
           ...(toBattlefield ? { x, y } : {}),
-          ...(target.zone.kind === 'LIBRARY' ? { index: 'TOP' as const } : {}),
+          ...(target.zone.kind === 'LIBRARY' ? { index: libraryIndex } : {}),
         };
         const cid = state.send(intent);
 

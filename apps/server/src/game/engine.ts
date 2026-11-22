@@ -168,12 +168,86 @@ function commanderTax(state: GameState, obj: GameObjectState, from: ZoneRef): Em
   const casts = (owner.commanderTax.get(obj.id) ?? 0) + 1;
   owner.commanderTax.set(obj.id, casts);
   const commanderId = obj.id;
+  state.recentCast = { seat: obj.owner, objectId: obj.id, at: Date.now() };
   return [
     {
       audience: ALL,
       build: () => ({ type: 'COMMANDER_TAX_CHANGED', seat: obj.owner, commanderId, casts }),
     },
   ];
+}
+
+/** L'intent renvoie-t-il cet objet en zone de commandement ? */
+function returnsToCommand(intent: Intent, objectId: ObjectId): boolean {
+  if (intent.type === 'MOVE_CARD') return intent.cardId === objectId && intent.to.kind === 'COMMAND';
+  if (intent.type === 'MOVE_CARDS') return intent.cardIds.includes(objectId) && intent.to.kind === 'COMMAND';
+  return false;
+}
+
+/** Au-delà, un retour en zone de commandement n'est plus une correction. */
+const CAST_REGRET_MS = 30_000;
+
+/**
+ * Rend une taxe comptée par erreur.
+ *
+ * La taxe est dérivée du déplacement (§6.6), et c'est voulu : glisser son
+ * commandant sur le terrain, c'est le lancer. Mais le même geste fait par
+ * mégarde comptait un lancement que personne n'avait fait, et les parties
+ * réelles le montrent : un commandant sur quatre sorti de sa zone y revenait
+ * dans la foulée, suivi d'un « taxe de commandant corrigée » à la main.
+ *
+ * Un commandant qui revient **avant que son joueur ait fait quoi que ce soit
+ * d'autre**, et dans les trente secondes, n'a pas été lancé : on rend la taxe.
+ * Un commandant mort et renvoyé plus tard garde la sienne — un autre intent du
+ * siège est passé entre les deux, `applyIntent` a effacé la trace.
+ */
+function commanderReturn(state: GameState, obj: GameObjectState, from: ZoneRef, seatId: SeatId): Emission[] {
+  const recent = state.recentCast;
+  if (!recent || recent.objectId !== obj.id || recent.seat !== seatId) return [];
+  if (obj.zone.kind !== 'COMMAND' || (from.kind !== 'BATTLEFIELD' && from.kind !== 'STACK_NOTE')) return [];
+  state.recentCast = undefined;
+  if (Date.now() - recent.at > CAST_REGRET_MS) return [];
+  const owner = state.seats.get(obj.owner);
+  const before = owner?.commanderTax.get(obj.id) ?? 0;
+  if (!owner || before === 0) return [];
+  const casts = before - 1;
+  owner.commanderTax.set(obj.id, casts);
+  const commanderId = obj.id;
+  return [
+    {
+      audience: ALL,
+      build: () => ({ type: 'COMMANDER_TAX_CHANGED', seat: obj.owner, commanderId, casts }),
+      log: {
+        text: `${owner.displayName} : retour immédiat de ${publicName(obj, state)}, taxe de commandant non comptée`,
+        cardIds: [obj.id],
+      },
+    },
+  ];
+}
+
+/**
+ * L'annulation d'un lancement doit aussi rendre sa taxe : `undoRestore` remet
+ * la carte en zone de commandement mais ne sait rien du compteur, et Ctrl+Z
+ * laissait un lancement compté pour un commandant qui n'était jamais sorti.
+ */
+function undoWithTax(undo: UndoEntry, state: GameState, obj: GameObjectState, taxed: boolean): UndoEntry {
+  if (!taxed) return undo;
+  const ownerId = obj.owner;
+  const commanderId = obj.id;
+  return {
+    ...undo,
+    run: () => {
+      const emissions = undo.run();
+      const owner = state.seats.get(ownerId);
+      const casts = Math.max(0, (owner?.commanderTax.get(commanderId) ?? 1) - 1);
+      owner?.commanderTax.set(commanderId, casts);
+      if (state.recentCast?.objectId === commanderId) state.recentCast = undefined;
+      return [
+        ...emissions,
+        { audience: ALL, build: () => ({ type: 'COMMANDER_TAX_CHANGED', seat: ownerId, commanderId, casts }) },
+      ];
+    },
+  };
 }
 
 function cardName(obj: GameObjectState): string {
@@ -743,6 +817,18 @@ export function applyIntent(
   deps: EngineDeps = {},
 ): IntentResult {
   const before = captureZoneOrders(state);
+  // Tout autre geste du joueur qui vient de sortir son commandant clôt la
+  // fenêtre de repentir (`commanderReturn`) : passé ce point, un retour en zone
+  // de commandement est une mort ou un renvoi, et la taxe reste due.
+  const recent = state.recentCast;
+  if (
+    recent &&
+    recent.seat === seatId &&
+    intent.type !== 'CHAT_BUBBLE' &&
+    !returnsToCommand(intent, recent.objectId)
+  ) {
+    state.recentCast = undefined;
+  }
   const result = applyIntentCore(state, seatId, intent, rng, deps);
   // Après les events de l'intent : le client applique dans l'ordre reçu, et
   // c'est la remise à plat qui doit avoir le dernier mot.
@@ -848,11 +934,15 @@ function applyIntentCore(
         ...(from.kind === 'BATTLEFIELD' && obj.zone.kind !== 'BATTLEFIELD'
           ? detachDependents(state, obj.id)
           : []),
-        ...commanderTax(state, obj, from),
+      ];
+      const taxed = commanderTax(state, obj, from);
+      emissions.push(
+        ...taxed,
+        ...commanderReturn(state, obj, from, seatId),
         zoneCount(state, from),
         zoneCount(state, obj.zone),
-      ];
-      return { emissions, undo: undoRestore(state, obj.id, before, rng) };
+      );
+      return { emissions, undo: undoWithTax(undoRestore(state, obj.id, before, rng), state, obj, taxed.length > 0) };
     }
 
     case 'MOVE_CARDS': {
@@ -891,7 +981,7 @@ function applyIntentCore(
         if (from.kind === 'BATTLEFIELD' && obj.zone.kind !== 'BATTLEFIELD') {
           emissions.push(...detachDependents(state, obj.id));
         }
-        emissions.push(...commanderTax(state, obj, from));
+        emissions.push(...commanderTax(state, obj, from), ...commanderReturn(state, obj, from, seatId));
         moved.push(obj);
       }
 

@@ -5,6 +5,7 @@
  * invité peut coller une liste, jouer avec, et ne créer un compte qu'après.
  */
 import type { DeckSource, DeckSummary, DeckZone, ImportReport, ParsedDeck, ResolvedCard } from '@mtg/shared';
+import { sanitizeTokenShelf } from '@mtg/shared';
 import { prisma } from '../db.js';
 import {
   reconcilePinnedPrintings,
@@ -396,6 +397,7 @@ export async function listDecks(userId: string): Promise<DeckSummary[]> {
       commanders,
       thumbnail: chooseDeckThumbnail(candidates),
       pinnedPrintings,
+      tokenShelf: sanitizeTokenShelf(deck.tokenShelf),
       colorIdentity: [...colors].sort(),
     };
   });

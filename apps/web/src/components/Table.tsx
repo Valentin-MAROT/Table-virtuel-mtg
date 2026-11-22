@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type { CardView, ZoneRef } from '@mtg/shared';
 import { useGame, zoneKey } from '../store/game.js';
 import { COMMAND_COLUMN, PANEL_HEIGHT, PANEL_WIDTH, SeatPanel } from './SeatPanel.js';
-import { startCardDrag } from './DragLayer.js';
+import { dragJustEnded, startCardDrag } from './DragLayer.js';
 import { TableLabel } from './TableLabel.js';
 import { TableBackground } from './TableBackground.js';
 import { GAP } from './SeatPanel.js';
@@ -65,7 +65,14 @@ const SURFACE_CLASS = 'table-surface absolute inset-0 overflow-clip';
  * les évite : un panneau de siège caché sous le journal ne serait pas cliquable.
  */
 const SIDE_LOG_WIDTH = 304;
-const SIDE_PANEL_WIDTH = 240;
+/*
+ * 256 et non 240 : la colonne de droite fait bien 240 px de large, mais elle
+ * est posée à 12 px du bord — elle occupe donc 252 px, et l'ancienne valeur
+ * laissait le cadrage glisser de 12 px **dessous**. Mesuré en « recentrer sur
+ * moi » à 1280 px : le bandeau de vie et les piles du siège passaient sous le
+ * panneau joueur. 252 plus 4 de gouttière, comme à gauche (300 + 4).
+ */
+const SIDE_PANEL_WIDTH = 256;
 const TOP_BAR_HEIGHT = 60;
 /**
  * Ce que le rail de main prend en bas de l'écran.
@@ -902,6 +909,22 @@ export const Table = memo(function Table({ readOnly = false }: { readOnly?: bool
                   // elle seule.
                   send(tapIntent(groupOf(card.id)));
                 }}
+                onCardClick={(card, event) => {
+                  /*
+                   * Un clic simple sélectionne, comme dans la main et dans le
+                   * panneau des zones — le terrain était le seul endroit où il
+                   * ne faisait rien. Ctrl est déjà traité à l'appui, un dépôt
+                   * n'est pas un clic, et un accrochage capte le clic.
+                   *
+                   * Une carte **déjà** dans une sélection multiple la laisse
+                   * intacte : c'est le premier clic d'un double-clic de groupe
+                   * (tout engager), et le réduire à une carte casserait ce geste.
+                   */
+                  if (attachPending || event.ctrlKey || event.metaKey || dragJustEnded()) return;
+                  const current = useGame.getState().selection;
+                  if (current.has(card.id) && current.size > 1) return;
+                  setSelection(new Set([card.id]));
+                }}
                 onCardContextMenu={(card, event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -995,7 +1018,13 @@ export const Table = memo(function Table({ readOnly = false }: { readOnly?: bool
         main, qui est un frère de la table dans la page. Un z-index posé à
         l'intérieur de la table ne pèserait pas contre lui.
       */}
-      <div className="fixed bottom-3 left-3 z-30 flex gap-2">
+      {/*
+        En fenêtre étroite (sous `NARROW_WIDTH`), la réserve de mana dépliée
+        prend presque toute la largeur du bas et recouvrait « Recentrer sur
+        moi » : les deux boutons montent alors au-dessus d'elle, de la hauteur
+        qu'elle publie (`--mana-pool-h`, voir `ManaPool`).
+      */}
+      <div className="fixed bottom-3 left-3 z-30 flex gap-2 max-[899px]:bottom-[calc(var(--mana-pool-h,0px)+1.25rem)]">
         <button
           className="rounded border border-edge bg-panel/80 px-2 py-1 text-xs text-slate-400 hover:text-slate-200"
           data-test="recenter"
@@ -1314,7 +1343,7 @@ function freeArea(rect: DOMRect): { left: number; top: number; width: number; he
 }
 
 /**
- * Disposition des panneaux, de 1 à 4 sièges.
+ * Disposition des panneaux, de 1 à 8 sièges.
  *
  * `positions[i]` est la place du i-ième siège dans l'ordre des `seatIndex`, et
  * rien d'autre : aucune notion de « mon siège » n'entre ici, sans quoi deux
@@ -1324,12 +1353,18 @@ function freeArea(rect: DOMRect): { left: number; top: number; width: number; he
  */
 function layout(count: number): Array<{ col: number; row: number }> {
   if (count <= 0) return [];
-  // La table est plafonnée à quatre joueurs (`LIMITS.maxSeats`). Deux joueurs
-  // se font face, en colonne ; trois et quatre forment un carré, deux colonnes
-  // sur deux rangées, chacun face à un voisin — c'est la disposition d'une
-  // vraie table, et elle se cadre bien plus serré que l'ancienne grille à huit.
-  // À trois, la rangée incomplète est centrée par la colonne fractionnaire.
-  const cols = count <= 2 ? 1 : 2;
+  // Jusqu'à quatre joueurs — le plafond hors Treachery (`seatCap`) — rien ne
+  // change : deux joueurs se font face, en colonne ; trois et quatre forment un
+  // carré, deux colonnes sur deux rangées, chacun face à un voisin. C'est la
+  // disposition d'une vraie table, et elle se cadre serré.
+  //
+  // Treachery va jusqu'à huit, et garde la même idée : **toujours deux
+  // rangées**, qui se font face. On élargit donc la table au lieu de l'empiler
+  // — trois colonnes à cinq et six joueurs, quatre à sept et huit. Une
+  // troisième rangée aurait mis des joueurs « au milieu », face à personne, et
+  // doublé la hauteur à parcourir pour voir ce que fait le voisin d'en face.
+  // La rangée incomplète est centrée par la colonne fractionnaire.
+  const cols = count <= 2 ? 1 : count <= 4 ? 2 : count <= 6 ? 3 : 4;
   const rows = Math.ceil(count / cols);
 
   const positions: Array<{ col: number; row: number }> = [];

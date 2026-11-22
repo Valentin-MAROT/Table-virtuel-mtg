@@ -54,6 +54,26 @@ body {
   box-shadow: 0 2px 8px rgb(0 0 0 / 55%);
 }
 
+/*
+ * Colonnes flottantes de la table (journal à gauche, panneau joueur à droite).
+ *
+ * Elles étaient posées en `absolute` sans borne basse : sur une fenêtre courte
+ * — un portable 1366 × 768 laisse 650 px au navigateur — le journal passait
+ * sous les boutons de cadrage puis hors de l'écran, et l'étagère à jetons sous
+ * la réserve de mana. Elles tiennent maintenant dans la hauteur disponible :
+ * rien ne rétrécit, sauf le bloc marqué `.hud-shrink` (le journal, qui défile
+ * déjà), et si même cela ne suffit pas la colonne défile, sans barre — une
+ * barre mangerait la largeur des panneaux.
+ */
+.hud-column {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.hud-column::-webkit-scrollbar { display: none; }
+.hud-column > * { flex-shrink: 0; }
+.hud-column > .hud-shrink { flex-shrink: 1; min-height: 9rem; }
+
 .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: #2c333d; border-radius: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

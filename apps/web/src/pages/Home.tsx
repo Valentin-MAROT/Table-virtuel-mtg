@@ -19,19 +19,21 @@ import { InstallApp } from '../components/InstallApp.js';
 import { AccountBar } from '../components/AccountBar.js';
 import { useT } from '../lib/i18n/index.js';
 
-type Mode = 'COMMANDER' | 'DUEL';
+type Mode = 'COMMANDER' | 'DUEL' | 'TREACHERY';
 
 /**
  * Les formats offerts à la création.
  *
  * Le nom du format reste en anglais dans les deux langues : « Commander » et
- * « Duel » sont des noms de format, pas des libellés d'interface. Le détail,
+ * « Duel » sont des noms de format, pas des libellés d'interface — et
+ * « Treachery » est le nom propre de la variante. Le détail,
  * lui, est du texte de produit — il passe par le catalogue, et c'est la clé qui
  * vit ici plutôt que la phrase, faute de pouvoir appeler `useT` hors de React.
  */
 const MODES: Array<{ id: Mode; label: string }> = [
   { id: 'COMMANDER', label: 'Commander' },
   { id: 'DUEL', label: 'Duel' },
+  { id: 'TREACHERY', label: 'Treachery' },
 ];
 
 export function Home(): React.ReactElement {
@@ -64,7 +66,12 @@ export function Home(): React.ReactElement {
     }
   }
 
-  const detail = mode === 'DUEL' ? t('home.modeDuelDetail') : t('home.modeCommanderDetail');
+  const detail =
+    mode === 'DUEL'
+      ? t('home.modeDuelDetail')
+      : mode === 'TREACHERY'
+        ? t('home.modeTreacheryDetail')
+        : t('home.modeCommanderDetail');
 
   return (
     <div className="site site-floor min-h-screen">

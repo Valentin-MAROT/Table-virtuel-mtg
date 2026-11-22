@@ -119,7 +119,8 @@ describe('tampon de resynchronisation', () => {
 
     // Un event par intent : on dépasse franchement la capacité du tampon.
     for (let i = 0; i < LIMITS.eventBuffer + 50; i++) {
-      await room.handleIntent(a, `r-${i}`, { type: 'SET_PHASE', phase: 'MAIN1' });
+      // Deux phases en alternance : reposer la phase courante n'émet plus rien.
+      await room.handleIntent(a, `r-${i}`, { type: 'SET_PHASE', phase: i % 2 ? 'MAIN1' : 'MAIN2' });
     }
 
     expect(room.deltaFor('seat_0', start)).toBeNull();

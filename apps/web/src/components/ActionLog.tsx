@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NAMED_LOG_LIMIT, type CardView, type ObjectId } from '@mtg/shared';
+import type { LogEntry } from '@mtg/shared';
 import { cardMeta, subscribeCards } from '../lib/cards.js';
 import { useGame } from '../store/game.js';
 import { useT } from '../lib/i18n/index.js';
@@ -112,6 +113,61 @@ export function nomsDeplies(
   return nomsDesCartes(entry.cardIds, cards, nomDeMeta);
 }
 
+/** Une ligne affichée : l'entrée qui l'ouvre, et combien de fois elle s'est répétée. */
+export interface LigneJournal {
+  entry: LogEntry;
+  /** Ancres de **toutes** les répétitions, pour que le survol les surligne toutes. */
+  cardIds: ObjectId[];
+  fois: number;
+}
+
+/** Les lignes écrites pendant un même tour. `turn` absent : entrées antérieures à l'estampille. */
+export interface BlocJournal {
+  key: number;
+  turn: LogEntry['turn'];
+  lignes: LigneJournal[];
+}
+
+/**
+ * Découpe le journal en tours, et replie les répétitions immédiates.
+ *
+ * **Un bloc par tour.** Sans séparation, les lignes de deux joueurs se suivent
+ * sans qu'on voie où l'un s'arrête et où l'autre commence — c'était le premier
+ * reproche fait au journal. Le bloc change quand le numéro de tour change ; une
+ * ligne sans estampille reste dans le bloc courant plutôt que d'en ouvrir un faux.
+ *
+ * **« ×3 » plutôt que trois lignes.** Engager trois Trésors l'un après l'autre
+ * écrit trois fois la même phrase. Deux lignes fusionnent si elles se suivent,
+ * ont le même auteur, le même texte, le même tour, et qu'aucune n'est dépliable :
+ * une ligne abrégée a son propre lot à rouvrir, l'avaler dans une autre le
+ * perdrait. Le texte identique est la bonne clé — c'est exactement ce que le
+ * lecteur verrait répété — et il ne fusionne jamais deux faits différents.
+ */
+export function blocsDuJournal(log: readonly LogEntry[]): BlocJournal[] {
+  const blocs: BlocJournal[] = [];
+  for (const entry of log) {
+    let bloc = blocs[blocs.length - 1];
+    if (!bloc || (entry.turn && entry.turn.number !== bloc.turn?.number)) {
+      bloc = { key: entry.seq, turn: entry.turn, lignes: [] };
+      blocs.push(bloc);
+    }
+    const precedente = bloc.lignes[bloc.lignes.length - 1];
+    if (
+      precedente &&
+      precedente.entry.actor === entry.actor &&
+      precedente.entry.text === entry.text &&
+      !estAbregee(precedente.entry.cardIds, precedente.entry.names) &&
+      !estAbregee(entry.cardIds, entry.names)
+    ) {
+      precedente.fois += 1;
+      precedente.cardIds.push(...entry.cardIds);
+    } else {
+      bloc.lignes.push({ entry, cardIds: [...entry.cardIds], fois: 1 });
+    }
+  }
+  return blocs;
+}
+
 /**
  * Journal d'actions. Chaque ligne vient d'un event : l'acteur porte sa couleur de
  * siège, et survoler une ligne met en évidence les cartes qu'elle mentionne.
@@ -176,6 +232,8 @@ export function ActionLog({
     return parSeq;
   }, [log, cards, depliees]);
 
+  const blocs = useMemo(() => blocsDuJournal(log), [log]);
+
   function nameOf(actor: string | null): { name: string; color: string } {
     const seat = seats.find((s) => s.id === actor);
     return { name: seat?.displayName ?? t('log.tableActor'), color: seat?.color ?? '#94a3b8' };
@@ -189,8 +247,82 @@ export function ActionLog({
     });
   }
 
+  function renderLigne({ entry, cardIds, fois }: LigneJournal): React.ReactElement {
+    const actor = nameOf(entry.actor);
+    const depliable = estAbregee(entry.cardIds, entry.names);
+    // Le compte annoncé par le bouton est celui du lot réel, pas celui
+    // des ancres : après une cascade il n'en reste qu'une pour neuf
+    // cartes, et « Voir la 1 carte » mentirait sur ce qui va s'ouvrir.
+    const taille = entry.names?.length ?? entry.cardIds.length;
+    const ouverte = depliees.has(entry.seq);
+    return (
+      <div
+        key={entry.seq}
+        className="mb-1.5 cursor-default text-slate-200 hover:text-white transition-colors"
+        onMouseEnter={() => onHighlight(cardIds)}
+        onMouseLeave={() => onHighlight([])}
+      >
+        <span
+          className="inline-block whitespace-nowrap font-bold mr-1 px-1.5 py-0.5 rounded text-[11px] ring-1 ring-white/10"
+          style={{ color: actor.color, background: `${actor.color}18` }}
+        >
+          {actor.name}
+        </span>{' '}
+        <span className="text-slate-300">{stripActor(entry.text, actor.name)}</span>
+        {fois > 1 && (
+          <>
+            {' '}
+            <span
+              className="inline-block rounded bg-slate-700/80 px-1 py-px align-middle text-[10px] font-bold tabular-nums text-slate-100"
+              title={t('log.repeated', { count: fois })}
+            >
+              ×{fois}
+            </span>
+          </>
+        )}
+        {depliable && (
+          <>
+            {' '}
+            <button
+              type="button"
+              aria-expanded={ouverte}
+              // `after:-inset-2` étend la zone tapable bien au-delà du
+              // dessin : dans une colonne en text-xs on ne peut pas se
+              // permettre un bouton de 44 px de haut, mais on peut lui
+              // donner 44 px de cible.
+              className="relative after:absolute after:-inset-2 after:content-[''] inline-flex min-h-[26px] touch-manipulation items-center gap-1 rounded-md border border-slate-700 bg-slate-800/70 px-2 py-0.5 align-middle text-[10px] font-semibold text-sky-300 transition-colors hover:border-sky-600 hover:bg-slate-700/70 hover:text-sky-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500"
+              onClick={() => basculer(entry.seq)}
+            >
+              <span aria-hidden="true">{ouverte ? '▾' : '▸'}</span>
+              {ouverte
+                ? t('log.collapse')
+                : t('log.expandCards', { count: taille })}
+            </button>
+          </>
+        )}
+        {ouverte && (
+          <ul className="mt-1 flex flex-wrap gap-1 border-l border-slate-700/80 pl-2">
+            {(noms.get(entry.seq) ?? []).map((nom, index) => (
+              <li
+                // La position, et non l'ancre : `names` peut être plus
+                // long que `cardIds` (cascade), et un lot contient
+                // couramment deux fois la même carte.
+                key={index}
+                className={`rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px] ${
+                  nom === CARTE_ANONYME ? 'italic text-slate-500' : 'text-slate-300'
+                }`}
+              >
+                {nom}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="pointer-events-auto w-72 rounded-xl border border-slate-700 bg-slate-900/90 shadow-xl backdrop-blur-md overflow-hidden">
+    <div className="hud-shrink pointer-events-auto flex w-72 flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 shadow-xl backdrop-blur-md">
       <header className="flex items-center justify-between border-b border-slate-800/90 px-3.5 py-2 text-xs bg-slate-950/40">
         <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">
           {t('log.title')}
@@ -204,70 +336,39 @@ export function ActionLog({
         </button>
       </header>
 
-      <div className="scrollbar-thin max-h-56 overflow-y-auto px-3 py-2 text-xs leading-relaxed">
+      <div className="scrollbar-thin max-h-56 min-h-0 overflow-y-auto px-3 py-2 text-xs leading-relaxed">
         {log.length === 0 && (
           <p className="text-slate-500 italic py-2 text-center text-xs">{t('log.empty')}</p>
         )}
-        {log.map((entry) => {
-          const actor = nameOf(entry.actor);
-          const depliable = estAbregee(entry.cardIds, entry.names);
-          // Le compte annoncé par le bouton est celui du lot réel, pas celui
-          // des ancres : après une cascade il n'en reste qu'une pour neuf
-          // cartes, et « Voir la 1 carte » mentirait sur ce qui va s'ouvrir.
-          const taille = entry.names?.length ?? entry.cardIds.length;
-          const ouverte = depliees.has(entry.seq);
+        {blocs.map((bloc) => {
+          const actif = bloc.turn ? nameOf(bloc.turn.seat) : null;
           return (
-            <div
-              key={entry.seq}
-              className="mb-1.5 cursor-default text-slate-200 hover:text-white transition-colors"
-              onMouseEnter={() => onHighlight(entry.cardIds)}
-              onMouseLeave={() => onHighlight([])}
+            <section
+              key={bloc.key}
+              // Le filet gauche reprend la couleur du joueur actif : d'un coup
+              // d'œil, on voit à qui appartient la tranche qu'on lit.
+              className="mb-1 border-l-2 pl-2"
+              style={{ borderColor: actif ? `${actif.color}66` : 'transparent' }}
             >
-              <span
-                className="inline-block whitespace-nowrap font-bold mr-1 px-1.5 py-0.5 rounded text-[11px] ring-1 ring-white/10"
-                style={{ color: actor.color, background: `${actor.color}18` }}
-              >
-                {actor.name}
-              </span>{' '}
-              <span className="text-slate-300">{stripActor(entry.text, actor.name)}</span>
-              {depliable && (
-                <>
-                  {' '}
-                  <button
-                    type="button"
-                    aria-expanded={ouverte}
-                    // `after:-inset-2` étend la zone tapable bien au-delà du
-                    // dessin : dans une colonne en text-xs on ne peut pas se
-                    // permettre un bouton de 44 px de haut, mais on peut lui
-                    // donner 44 px de cible.
-                    className="relative after:absolute after:-inset-2 after:content-[''] inline-flex min-h-[26px] touch-manipulation items-center gap-1 rounded-md border border-slate-700 bg-slate-800/70 px-2 py-0.5 align-middle text-[10px] font-semibold text-sky-300 transition-colors hover:border-sky-600 hover:bg-slate-700/70 hover:text-sky-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500"
-                    onClick={() => basculer(entry.seq)}
+              {bloc.turn && actif && (
+                <h3
+                  // Collant : en remontant dans un long tour, on sait toujours
+                  // lequel on lit. `-top-2` couvre le `py-2` du défileur.
+                  className="sticky -top-2 z-10 -ml-[10px] mb-1 mt-2 flex items-center gap-2 bg-slate-900 py-1 text-[10px] font-bold uppercase tracking-wider first:mt-0"
+                >
+                  <span
+                    className="rounded px-1.5 py-0.5 ring-1 ring-white/10"
+                    style={{ color: actif.color, background: `${actif.color}22` }}
                   >
-                    <span aria-hidden="true">{ouverte ? '▾' : '▸'}</span>
-                    {ouverte
-                      ? t('log.collapse')
-                      : t('log.expandCards', { count: taille })}
-                  </button>
-                </>
+                    {bloc.turn.number === 0
+                      ? t('log.preGame')
+                      : `${t('log.turnHeader', { number: bloc.turn.number })} · ${actif.name}`}
+                  </span>
+                  <span aria-hidden="true" className="h-px flex-1 bg-slate-700/80" />
+                </h3>
               )}
-              {ouverte && (
-                <ul className="mt-1 flex flex-wrap gap-1 border-l border-slate-700/80 pl-2">
-                  {(noms.get(entry.seq) ?? []).map((nom, index) => (
-                    <li
-                      // La position, et non l'ancre : `names` peut être plus
-                      // long que `cardIds` (cascade), et un lot contient
-                      // couramment deux fois la même carte.
-                      key={index}
-                      className={`rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px] ${
-                        nom === CARTE_ANONYME ? 'italic text-slate-500' : 'text-slate-300'
-                      }`}
-                    >
-                      {nom}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+              {bloc.lignes.map((ligne) => renderLigne(ligne))}
+            </section>
           );
         })}
         <div ref={bottom} />

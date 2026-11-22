@@ -1595,10 +1595,14 @@ type ErrorCode =
   | 'ERR_GAME_ALREADY_STARTED' | 'ERR_RATE_LIMIT' | 'ERR_PAYLOAD' | 'ERR_INTERNAL';
 ```
 
-**Quatre sièges au plus par table.** Le produit vise la partie de Commander à
-quatre, pas la table géante. Un `SIT_DOWN` au-delà est refusé par `ERR_ROOM_FULL`, et
-`seatIndex` est borné par le schéma. Le mode Treachery, envisagé plus tard, demandera de
-revoir ce plafond **et** la disposition des panneaux en même temps.
+**Quatre sièges au plus par table, huit en Treachery.** Le produit vise la partie de
+Commander à quatre, pas la table géante ; le mode Treachery se joue de quatre à huit
+(§15) et porte son propre plafond. C'est `seatCap(mode)` qui dit lequel s'applique, et
+c'est la **room** qui l'applique : un `SIT_DOWN` au-delà est refusé par `ERR_ROOM_FULL`.
+Le schéma, qui ne connaît pas le mode de la table, borne `seatIndex` au plafond absolu
+(`LIMITS.maxSeatsAbsolute`, huit). Le plafond et la disposition des panneaux ont été
+revus **ensemble** (`Table.tsx`, `layout` : toujours deux rangées, jusqu'à quatre
+colonnes).
 
 Quotas par socket : 60 intents/s en rafale, 20/s soutenu (token bucket) ; les curseurs
 sont exclus et traités par leur propre throttle. Frame entrante > 64 KiB → fermeture
@@ -1721,6 +1725,117 @@ L'interface cible est celle de la capture de référence (`docs/ui-reference.md`
 
 ---
 
+## 15. Treachery
+
+Variante à rôles cachés, jouée selon ses règles officielles
+(<https://mtgtreachery.net/rules/cr/>, règles 907 et 702.TR01). C'est une partie de
+Commander — 40 points de vie, de **quatre à huit** joueurs — où chacun reçoit une
+**carte d'identité** : Leader, Gardien, Assassin ou Traître.
+
+Le mode obéit aux principes de la §1 sans exception : le serveur **tient l'état**, il
+ne joue pas à la place des joueurs. Il distribue, retourne les cartes et constate
+qu'une équipe a gagné. Il ne vérifie ni un coût de dévoilement, ni la restriction
+*undercover*, ni l'effet d'une carte d'identité — pas plus qu'il ne vérifie un coût de
+mana. Une carte dont le texte change la condition de victoire de son joueur se résout
+à la table, comme tout effet de carte.
+
+### 15.1 Distribution
+
+Au `START_GAME` d'une table en mode `TREACHERY` :
+
+| Joueurs | Leader | Gardiens | Assassins | Traîtres |
+|---|---|---|---|---|
+| 4 | 1 | 0 | 2 | 1 |
+| 5 | 1 | 1 | 2 | 1 |
+| 6 | 1 | 1 | 3 | 1 |
+| 7 | 1 | 2 | 3 | 1 |
+| 8 | 1 | 2 | 3 | 2 |
+
+- Hors de cette plage, `START_GAME` est refusé par `ERR_GAME_NOT_STARTED`.
+- Chaque joueur reçoit une carte de son rôle, tirée sans doublon dans le catalogue
+  (`TREACHERY_IDENTITIES`, 62 cartes, édition TRD-2025). Seul le **numéro** de la carte
+  voyage ; son texte est dans le paquet partagé.
+- Le **Leader** est face visible d'emblée et **joue en premier** (907.7).
+- La répartition est **publique** (907.3d) : elle part à tous dans `TREACHERY_SETUP`.
+- **On n'entre pas dans une partie en cours** : un `SIT_DOWN` sur un siège neuf est
+  refusé par `ERR_GAME_ALREADY_STARTED` tant que la partie Treachery se joue. Reprendre
+  son propre siège reste permis.
+
+### 15.2 Visibilité
+
+Une seule règle, `canSeeTreacheryIdentity` (`game/treachery.ts`) : une identité **face
+visible** est connue de tous ; une identité **face cachée** n'est connue que de son
+joueur. Elle sert le snapshot et les events, comme l'exige la §8.1.
+
+Il n'existe **pas** de vue cachée d'une identité. Une identité que le destinataire n'a
+pas le droit de connaître n'est pas envoyée du tout : `Snapshot.treachery.identities`
+ne liste que la sienne et celles qui sont face visible, et l'event `IDENTITY_SHOWN`
+adressé au seul siège concerné laisse aux autres le `NOTED` de remplissage (§4.2). Une
+connexion sans siège ne reçoit rien, pas même la répartition (§13.4). Le journal ne
+nomme une carte d'identité qu'une fois retournée.
+
+```ts
+type TreacheryRole = 'LEADER' | 'GUARDIAN' | 'ASSASSIN' | 'TRAITOR';
+type TreacheryTeam = 'LEADER' | 'ASSASSINS' | 'TRAITOR';
+
+interface TreacheryIdentityView {
+  seat: SeatId;
+  displayName: string;   // conservé pour un siège qui a quitté la table (907.12)
+  role: TreacheryRole;
+  cardId: number;        // numéro dans TREACHERY_IDENTITIES
+  unveiled: boolean;     // false : uniquement sur sa propre identité, encore secrète
+}
+
+// Snapshot
+treachery?: { distribution: Record<TreacheryRole, number>; identities: TreacheryIdentityView[] };
+
+// Events
+| { type: 'TREACHERY_SETUP'; distribution: Record<TreacheryRole, number> | null }
+| { type: 'IDENTITY_SHOWN'; identity: TreacheryIdentityView }
+| { type: 'GAME_ENDED'; reason; winners: SeatId[]; team?: TreacheryTeam }
+```
+
+`TREACHERY_SETUP` avec `distribution: null` veut dire « il n'y a plus d'identités » :
+il accompagne `RESTART_GAME`, et le client oublie alors tout ce qu'il savait.
+
+### 15.3 Dévoilement et élimination
+
+- **`UNVEIL`** — retourne **sa propre** identité face visible. Action spéciale
+  (702.TR01c) : pas de pile, pas d'annulation (`UNDO_LAST` la refuse). Refusé hors
+  partie Treachery (`ERR_GAME_NOT_STARTED`) et sur une identité déjà visible
+  (`ERR_PAYLOAD`).
+- **Perdre révèle** (702.TR01f) : `CONCEDE`, ou un départ en cours de partie
+  (`STAND_UP` avec `force`), retourne l'identité du joueur aux yeux de tous.
+- À la fin de la partie, **toutes** les identités encore cachées sont retournées
+  (907.13), avant le `GAME_ENDED`.
+
+### 15.4 Victoire
+
+On ne gagne pas en restant seul, mais par équipe (907.8). Après chaque défaite :
+
+- **Le Leader est en jeu** : son équipe (Leader et Gardiens) gagne dès qu'il ne reste
+  plus ni Assassin ni Traître.
+- **Le Leader a perdu**, et ses Gardiens avec lui, survivants compris (907.8b) :
+  - s'il reste **au moins un Assassin** en jeu, les Assassins gagnent, éliminés compris ;
+  - sinon seul un Traître peut encore gagner — celui qui reste **seul** Traître en jeu.
+    À deux, la partie continue entre eux : deux Traîtres ne sont pas alliés (907.8d).
+
+`GAME_ENDED.team` nomme l'équipe ; `winners` liste ses sièges **encore assis** (un
+joueur parti n'a plus de siège, le journal le nomme). Une partie arrêtée sans qu'aucune
+équipe puisse gagner porte `winners: []` et pas de `team`.
+
+### 15.5 Contenu
+
+Treachery et ses cartes d'identité sont l'œuvre de leurs auteurs (mtgtreachery.net).
+Le **texte** des cartes est repris de leur base publique, avec renvoi vers la fiche
+d'origine. Les **illustrations** appartiennent à leurs artistes, crédités carte par
+carte : elles ne sont **ni copiées ni hébergées**. Le catalogue ne porte que l'adresse
+de l'image publiée par mtgtreachery.net, et c'est le navigateur du joueur qui la charge
+là-bas — la même règle que pour les faces de cartes chez Scryfall. Si l'image ne vient
+pas, la carte reste lisible par son texte.
+
+---
+
 ## Journal du document
 
 | Version | Date | Changement |
@@ -1737,3 +1852,4 @@ L'interface cible est celle de la capture de référence (`docs/ui-reference.md`
 | 11 | 2026-09-18 | **Le filtre d'ancres de `commit`, refait sur le bon critère** (§5.4). Deux défauts opposés, et ils se tenaient : le filtre du wire retirait les ancres d'une consultation en mode `REVEAL` — des identifiants que toute la table venait de recevoir par `LOOK_STARTED` — parce qu'il jugeait sur la seule zone ; et `state.log` n'était pas filtré du tout, si bien qu'une ancre retenue en direct ressortait par `logTail`, donc par le snapshot de chaque siège. Propager le premier sur le second aurait transporté le mauvais critère. Le critère retenu : **une ancre est un identifiant, pas une identité** — la question est « chaque siège détient-il déjà cet identifiant ? », pas « peut-il lire la carte ? ». Zone énumérable : oui toujours, y compris face cachée, dont l'identifiant est public même quand l'identité ne l'est pas. `LIBRARY` : seulement si **tous** les sièges connaissent l'identité, condition que `REVEAL` appliquait déjà chez lui et qui est hissée dans `commit` (`ancresPubliables`). Le tri se fait **une seule fois** et sert le wire, le replay et `state.log` : le direct et le rattrapage disent désormais la même chose, ce qui est la propriété à tenir. **Aucun format de message ne change : `PROTOCOL_VERSION` reste à 3.** |
 | 12 | 2026-09-19 | **« Découvrir sans N » : le critère d'arrêt peut être un type** (§6.4). Les cartes qui révèlent jusqu'à une créature, un artefact ou un Dragon demandent la séquence de la cascade au mot comparé près : `CASCADE` est donc **étendu** plutôt que doublé. `manaValue`/`compare` deviennent facultatifs l'un par l'autre avec le nouveau `criterion` (`TYPE` / `SUBTYPE` / `PERMANENT`), et `intentSchema` tient la contrainte croisée — un critère, jamais deux ni aucun — là où vit déjà celle de `CREATE_TOKEN`. La comparaison se fait sur la **ligne de type**, ses deux faces comprises, et le saut automatique des terrains ne s'applique pas à ce critère. `CARD_TYPES` (`@mtg/shared`) porte la liste des types et leur permanence, une seule fois pour le client et le serveur ; `value` reste une chaîne libre, pour qu'un mot hors liste soit comparé plutôt que refusé. Nouveau `rest` (`LIBRARY_BOTTOM` / `GRAVEYARD` / `HAND`), **obligatoire avec `criterion` et refusé sans lui** : ces cartes-là ne sont pas unanimes sur le sort du reste, et un défaut aurait conclu à la place du joueur (§1.1). Le retour en bibliothèque garde la réattribution d'identifiants (§2.1) ; le cimetière et la main sont des déplacements ordinaires, ancrés seulement quand la zone d'arrivée est publique. **Champs facultatifs et ajoutés : `PROTOCOL_VERSION` reste à 3** (§11), comme pour `CASCADE` et `PROLIFERATE` — un client ancien ne les émet jamais, et client et serveur sont déployés ensemble. |
 | 3 | 2026-09-15 | Durcissement : `CARD_HIDDEN` à l'entrée en bibliothèque (§2.1), gardes de `MOVE_CARDS` et d'`ATTACH` (§6.1), `copyOf` restreint au champ de bataille (§6.3), verrou de zone et `sortIndex` brassé des `LOOK` (§6.4), `REVEAL_HAND` comme droit de zone (§6.5), `START_GAME` et `SIT_DOWN` durcis (§6.8), cas de bascule du delta et snapshot sans siège (§8.1), fermeture de l'annulation (§9), critères §12.6 et §12.7 |
+| 13 | 2026-11-11 | **Mode Treachery** (§15) : identités secrètes distribuées au lancement, intent `UNVEIL`, events `TREACHERY_SETUP` et `IDENTITY_SHOWN`, champs facultatifs `Snapshot.treachery` et `GAME_ENDED.team`, victoire par équipe. Plafond de sièges porté par le mode (§11) : quatre, huit en Treachery. `PROTOCOL_VERSION` inchangé — rien de tout cela n'existe hors d'une table Treachery (`core.ts`). |

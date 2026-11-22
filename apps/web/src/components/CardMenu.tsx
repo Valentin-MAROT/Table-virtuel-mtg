@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CARD_TYPES } from '@mtg/shared';
 import type { CardView, CascadeCriterion, PublicCardView, ZoneKind } from '@mtg/shared';
-import { useGame } from '../store/game.js';
+import { useGame, zoneKey } from '../store/game.js';
 import { api } from '../lib/api.js';
 import { cardMeta, cardName } from '../lib/cards.js';
 import { localizedCard, localizedCardName, useLocalizationTick } from '../lib/cardLocalization.js';
@@ -37,13 +37,11 @@ import {
   subtypeLabel,
   subtypeOptions,
 } from './CardSprite.js';
-import { CARD_HEIGHT, CARD_WIDTH } from '../lib/cards.js';
-import { PANEL_WIDTH } from './SeatPanel.js';
 
-/** Pas d'alignement : une carte, plus un filet d'air pour qu'on les distingue. */
-const ALIGN_STEP_X = CARD_WIDTH + 12;
-const ALIGN_STEP_Y = CARD_HEIGHT + 12;
-import { freeSpot } from '../lib/drag.js';
+import { landingSpots } from '../lib/landing.js';
+import { alignPositions } from '../lib/align.js';
+import { isCommander } from '../lib/commanders.js';
+import { menuJustOpenedByTouch } from './DragLayer.js';
 
 /**
  * Valeur de mana lue sur le coût, et l'aveu qu'on n'en est pas sûr.
@@ -367,7 +365,7 @@ function EntryButton({
         else open();
       }}
     >
-      <span className="truncate">{entry.label}</span>
+      <span className="truncate" title={entry.label}>{entry.label}</span>
       {entry.submenu ? (
         <span className="ml-2 shrink-0 text-slate-400" aria-hidden>
           ›
@@ -424,7 +422,7 @@ function Submenu({ anchor, entries }: { anchor: DOMRect; entries: Entry[] }): Re
           }`}
           onClick={entry.run}
         >
-          <span className="truncate">{entry.label}</span>
+          <span className="truncate" title={entry.label}>{entry.label}</span>
         </button>
       ))}
     </div>
@@ -664,12 +662,7 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
    * Première place libre du terrain d'accueil, plutôt que le coin (60, 60) où
    * chaque carte jouée se posait sur la précédente.
    */
-  const landing = (): { x: number; y: number } =>
-    freeSpot(
-      [...useGame.getState().cards.values()]
-        .filter((c) => c.zone.kind === 'BATTLEFIELD' && c.zone.seat === card.owner)
-        .map((c) => ({ x: c.x, y: c.y })),
-    );
+  const landing = (): { x: number; y: number } => landingSpots(card.owner, 1)[0]!;
   // Une action groupée s'applique à la sélection si la carte en fait partie.
   const targets = selection.has(card.id) ? [...selection] : [card.id];
   /** Les autres sièges : les destinataires possibles d'une révélation. */
@@ -799,26 +792,22 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
         label: t('card.alignSelection', { count: targets.length }),
         run: () => {
           const state = useGame.getState();
-          const chosen = targets
-            .map((id) => state.cards.get(id))
-            .filter((c): c is CardView => c !== undefined && c.zone.kind === 'BATTLEFIELD')
-            .sort((a, b) => a.x - b.x || a.y - b.y);
-          if (chosen.length === 0) return onClose();
-
-          const left = Math.min(...chosen.map((c) => c.x));
-          const top = Math.min(...chosen.map((c) => c.y));
-          // Au-delà, la rangée sortirait du panneau : on passe à la suivante.
-          const perRow = Math.max(1, Math.floor((PANEL_WIDTH - left - 16) / ALIGN_STEP_X));
-
-          chosen.forEach((moved, rank) => {
-            state.send({
-              type: 'MOVE_CARD',
-              cardId: moved.id,
-              to: moved.zone,
-              x: Math.round(left + (rank % perRow) * ALIGN_STEP_X),
-              y: Math.round(top + Math.floor(rank / perRow) * ALIGN_STEP_Y),
-            });
-          });
+          // Un lasso élargi (Alt) peut prendre sur plusieurs terrains : chacun
+          // se range dans son propre panneau, à sa propre ancre.
+          const byZone = new Map<string, CardView[]>();
+          for (const id of targets) {
+            const c = state.cards.get(id);
+            if (!c || c.zone.kind !== 'BATTLEFIELD') continue;
+            const key = zoneKey(c.zone);
+            byZone.set(key, [...(byZone.get(key) ?? []), c]);
+          }
+          for (const group of byZone.values()) {
+            for (const [cardId, at] of alignPositions(group)) {
+              const moved = state.cards.get(cardId)!;
+              if (moved.x === at.x && moved.y === at.y) continue;
+              state.send({ type: 'MOVE_CARD', cardId, to: moved.zone, x: at.x, y: at.y });
+            }
+          }
           onClose();
         },
       });
@@ -1407,6 +1396,30 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
   }
 
   // Actions communes, quelle que soit la zone.
+
+  /*
+   * Renvoyer un commandant dans sa zone : le geste le plus fréquent d'une
+   * partie de Commander après sa mort ou son exil, et il n'avait aucune entrée
+   * — seul le glisser jusqu'à la petite vignette de commandement y menait.
+   * Sur une sélection, seuls les commandants partent (deux partenaires, par
+   * exemple) : le reste du lot ne va pas en zone de commandement.
+   */
+  if (inZone !== 'COMMAND' && inZone !== 'LIBRARY' && isCommander(card, seats)) {
+    entries.push({
+      label: t('card.toCommand'),
+      shortcut: 'K',
+      separatorBefore: true,
+      run: () => {
+        const state = useGame.getState();
+        for (const id of targets) {
+          const c = state.cards.get(id);
+          if (!c || !isCommander(c, seats)) continue;
+          send({ type: 'MOVE_CARD', cardId: id, to: { seat: c.owner, kind: 'COMMAND' } });
+        }
+        onClose();
+      },
+    });
+  }
 
   /*
    * Cascade et Découvrir — **la détection raccourcit le chemin, elle ne
@@ -2028,11 +2041,11 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
     <>
       <div
         className="fixed inset-0 z-40"
-        onClick={onClose}
-        onPointerDown={onClose}
+        onClick={() => menuJustOpenedByTouch() || onClose()}
+        onPointerDown={() => menuJustOpenedByTouch() || onClose()}
         onContextMenu={(event) => {
           event.preventDefault();
-          onClose();
+          if (!menuJustOpenedByTouch()) onClose();
         }}
       />
       <div
@@ -2044,6 +2057,14 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
         // assez haut pour défiler la ferait mentir, et le tiroir flotterait à
         // côté d'une ligne qui n'est plus là. On le referme plutôt.
         onScroll={() => setOpenSub(null)}
+        // Ouvert par un appui long, le menu apparaît sous le doigt : le clic
+        // émis au lever tomberait sur la première entrée et la déclencherait.
+        // On l'arrête ici, en capture, avant qu'aucune entrée ne le voie.
+        onClickCapture={(event) => {
+          if (!menuJustOpenedByTouch()) return;
+          event.stopPropagation();
+          event.preventDefault();
+        }}
       >
         <div className="border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2">
           <p className="truncate text-xs font-semibold text-slate-100">

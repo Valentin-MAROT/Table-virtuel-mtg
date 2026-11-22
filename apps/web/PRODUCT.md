@@ -46,7 +46,8 @@ l'émission), et non par discipline du client.
   partage un **lien** ou un **code** court.
 - On colle sa liste de deck : import Archidekt par URL, collage d'une liste
   texte, ou collage d'un export Moxfield.
-- Jusqu'à **quatre sièges** par table (`LIMITS.maxSeats`).
+- Jusqu'à **quatre sièges** par table (`LIMITS.maxSeats`), **huit en Treachery** —
+  la variante à rôles cachés, de quatre à huit joueurs.
 - **Aucun compte n'est nécessaire pour jouer.** Le compte sert à conserver ses
   decks, ses playmats et ses réglages.
 - La table elle-même est une surface dense, sombre, pannable/zoomable, décrite

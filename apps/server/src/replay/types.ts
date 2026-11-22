@@ -93,6 +93,13 @@ export interface ReplayOrigin {
   zones: Record<string, ObjectId[]>;
   labels: unknown[];
   logTail: LogEntry[];
+  /**
+   * Identités Treachery au lancement, **toutes** — l'origine est omnisciente,
+   * et c'est `projectTreachery` qui en retire à la lecture ce que le point de
+   * vue demandé n'a pas le droit de connaître. Absent hors Treachery, et dans
+   * les enregistrements antérieurs au mode.
+   */
+  treachery?: { distribution: Record<string, number>; identities: unknown[] };
 }
 
 /** Point de vue demandé par le lecteur. */

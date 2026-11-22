@@ -35,7 +35,7 @@ const counterSchema = z
 const coord = z.number().finite().min(-100_000).max(100_000);
 const rotation = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
 const cardIdList = z.array(objectId).min(1).max(256);
-const seatList = z.union([z.array(seatId).max(LIMITS.maxSeats), z.literal('ALL')]);
+const seatList = z.union([z.array(seatId).max(LIMITS.maxSeatsAbsolute), z.literal('ALL')]);
 
 /**
  * Union discriminée brute. Les contraintes croisées (« l'un ou l'autre ») ne
@@ -143,7 +143,7 @@ const intentUnion = z.discriminatedUnion('type', [
   }).strict(),
   z.object({ type: z.literal('REORDER_TOP'), zone: zoneRefSchema, order: z.array(objectId).max(500) }).strict(),
   z.object({ type: z.literal('DRAW'), count: z.number().int().min(1).max(100) }).strict(),
-  z.object({ type: z.literal('MULLIGAN'), keep: z.number().int().min(0).max(7).optional() }).strict(),
+  z.object({ type: z.literal('MULLIGAN'), keep: z.number().int().min(0).max(7).optional(), free: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('MILL'), count: z.number().int().min(1).max(200) }).strict(),
   z.object({ type: z.literal('EXILE_TOP'), count: z.number().int().min(1).max(200), faceDown: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('RANDOM_DISCARD'), count: z.number().int().min(1).max(20) }).strict(),
@@ -225,13 +225,16 @@ const intentUnion = z.discriminatedUnion('type', [
   z.object({ type: z.literal('END_TURN') }).strict(),
   z.object({ type: z.literal('SET_PHASE'), phase: z.enum(PHASES) }).strict(),
   z.object({ type: z.literal('CONCEDE') }).strict(),
+  z.object({ type: z.literal('UNVEIL') }).strict(),
   z.object({ type: z.literal('CHAT_BUBBLE'), text: z.string().min(1).max(LIMITS.chatMaxChars) }).strict(),
   z.object({ type: z.literal('CURSOR'), x: coord, y: coord, holding: objectId.optional() }).strict(),
   z.object({ type: z.literal('UNDO_LAST') }).strict(),
 
   z.object({
     type: z.literal('SIT_DOWN'),
-    seatIndex: z.number().int().min(0).max(LIMITS.maxSeats - 1),
+    // Borne absolue : le plafond du mode est appliqué par la room, qui seule
+    // connaît le mode de la table (`seatCap`).
+    seatIndex: z.number().int().min(0).max(LIMITS.maxSeatsAbsolute - 1),
     displayName: z.string().min(1).max(32).optional(),
     deckId: z.string().min(1).max(64).optional(),
     deckText: z.string().max(100_000).optional(),

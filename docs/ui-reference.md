@@ -147,8 +147,13 @@ coordonnées de `CURSOR` (§6.7 du protocole) interprétables par tous.
 | 1 | 1 × 1 |
 | 2 | 1 colonne, 2 rangées — les joueurs se font face |
 | 3–4 | 2 colonnes, 2 rangées |
+| 5–6 | 3 colonnes, 2 rangées — Treachery seulement |
+| 7–8 | 4 colonnes, 2 rangées — Treachery seulement |
 
-La table est plafonnée à **quatre sièges** (`LIMITS.maxSeats`).
+La table est plafonnée à **quatre sièges** (`LIMITS.maxSeats`), et à **huit en
+Treachery** (`seatCap`). Au-delà de quatre, on **élargit** la table plutôt que d'ajouter
+une rangée : deux rangées qui se font face, toujours, pour qu'aucun joueur ne soit « au
+milieu », face à personne.
 
 Le confort du « je suis en bas » se rend par le **cadrage** — bouton `Recentrer sur moi`,
 posé d'office à l'arrivée — et jamais en faisant tourner le monde selon le siège local.

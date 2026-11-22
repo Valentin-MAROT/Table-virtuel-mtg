@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MANA_POOL_SYMBOLS, manaCounterKind, manaSymbolOf } from '@mtg/shared';
 import type { CardView, SeatSummary, ZoneKind } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { BATTLEFIELD_SCALE, CardSprite, CARD_HEIGHT, CARD_WIDTH, PILE_SCALE } from './CardSprite.js';
 import { CardBack } from './CardBack.js';
-import { zoneAttr } from '../lib/drag.js';
+import { DRAG_THRESHOLD, findDropTarget, zoneAttr } from '../lib/drag.js';
 import { dragJustEnded } from './DragLayer.js';
 import { useT } from '../lib/i18n/index.js';
 import { manaSymbolUrl } from './ManaCost.js';
@@ -76,6 +78,8 @@ export interface SeatPanelProps {
    */
   onCardPointerDown: (card: CardView, event: React.PointerEvent) => void;
   onCardDoubleClick: (card: CardView) => void;
+  /** Clic simple, sans glissement : sélectionner, comme dans la main. */
+  onCardClick?: (card: CardView, event: React.MouseEvent) => void;
   onCardContextMenu: (card: CardView, event: React.MouseEvent) => void;
   onZoneClick: (kind: PileKind) => void;
   onZoneContextMenu: (kind: PileKind, event: React.MouseEvent) => void;
@@ -100,6 +104,7 @@ export function SeatPanel({
   turnNumber = 0,
   onCardPointerDown,
   onCardDoubleClick,
+  onCardClick,
   onCardContextMenu,
   onZoneClick,
   onZoneContextMenu,
@@ -204,6 +209,7 @@ export function SeatPanel({
   const cardProps = (card: CardView): Record<string, unknown> => ({
     onPointerDown: (event: React.PointerEvent) => onCardPointerDown(card, event),
     onDoubleClick: () => onCardDoubleClick(card),
+    ...(onCardClick ? { onClick: (event: React.MouseEvent) => onCardClick(card, event) } : {}),
     onContextMenu: (event: React.MouseEvent) => onCardContextMenu(card, event),
   });
 
@@ -582,6 +588,22 @@ export function SeatPanel({
           // Elle reste survolable, donc elle a son aperçu agrandi comme les autres.
           preview={revealedTop}
           topReveal={topRevealNote}
+          // Piocher, le geste le plus fréquent de la partie (une ligne de
+          // journal sur cinq), se fait enfin sur la pile elle-même : double-clic,
+          // ou glisser la pile jusqu'à sa main. C'est toujours un `DRAW` — le
+          // serveur choisit la carte, rien de la bibliothèque ne sort par là.
+          {...(isMe
+            ? {
+                onDoubleClick: () => useGame.getState().send({ type: 'DRAW', count: 1 }),
+                onDrawDrag: (x: number, y: number) => {
+                  const state = useGame.getState();
+                  const target = findDropTarget(x, y, state.viewScale);
+                  if (target?.zone.kind === 'HAND' && target.zone.seat === state.mySeat) {
+                    state.send({ type: 'DRAW', count: 1 });
+                  }
+                },
+              }
+            : {})}
           onClick={() => onZoneClick('LIBRARY')}
           onContextMenu={(event) => onZoneContextMenu('LIBRARY', event)}
         />
@@ -748,6 +770,8 @@ function ZonePile({
   badgeTone = 'count',
   badgeTitle,
   topReveal = null,
+  onDoubleClick,
+  onDrawDrag,
 }: {
   label: string;
   count: number;
@@ -758,6 +782,13 @@ function ZonePile({
   onPreviewPointerDown?: ((event: React.PointerEvent) => void) | undefined;
   /** Affiche un dos de carte plutôt qu'un libellé : réservé à la bibliothèque. */
   showBack?: boolean;
+  /**
+   * Double-clic sur la pile. Quand il est fourni, le clic simple attend
+   * `DOUBLE_CLICK_MS` avant d'agir, pour ne pas ouvrir le panneau sous la pioche.
+   */
+  onDoubleClick?: () => void;
+  /** Glisser la pile elle-même, relâché aux coordonnées écran données. */
+  onDrawDrag?: (clientX: number, clientY: number) => void;
   onClick: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
   /** Contenu du badge d'angle. `null` pour n'en afficher aucun. */
@@ -776,6 +807,52 @@ function ZonePile({
   // les piles sauf la zone de commandement, qui affiche la taxe à la place.
   const shownBadge = badge === undefined ? count : badge;
 
+  /*
+   * Le glisser de la pile : un dos de carte suit le pointeur, et le relâcher
+   * dit où il est tombé. Ce n'est pas `DragLayer` — il n'y a pas de carte à
+   * tenir, seulement un geste qui deviendra une pioche.
+   */
+  const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const draggedAt = useRef(0);
+  const clickTimer = useRef<number | null>(null);
+  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
+  useEffect(
+    () => () => {
+      if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+    },
+    [],
+  );
+  const dragHandlers = onDrawDrag
+    ? {
+        onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+          if (event.button !== 0 || count === 0) return;
+          // Pas de lasso sous une pioche : la table ne doit pas voir ce geste.
+          event.stopPropagation();
+          press.current = { x: event.clientX, y: event.clientY, moved: false };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        },
+        onPointerMove: (event: React.PointerEvent<HTMLButtonElement>) => {
+          const p = press.current;
+          if (!p) return;
+          if (!p.moved && Math.hypot(event.clientX - p.x, event.clientY - p.y) < DRAG_THRESHOLD) return;
+          p.moved = true;
+          setGhost({ x: event.clientX, y: event.clientY });
+        },
+        onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
+          const p = press.current;
+          press.current = null;
+          setGhost(null);
+          if (!p?.moved) return;
+          draggedAt.current = Date.now();
+          onDrawDrag(event.clientX, event.clientY);
+        },
+        onPointerCancel: () => {
+          press.current = null;
+          setGhost(null);
+        },
+      }
+    : {};
+
   return (
     <button
       className="relative shrink-0 rounded border border-white/10 bg-slate-950/70"
@@ -784,12 +861,31 @@ function ZonePile({
         width: CARD_WIDTH * PILE_SCALE,
         height: CARD_HEIGHT * PILE_SCALE,
         borderColor: `${color}66`,
+        ...(onDrawDrag && count > 0 ? { cursor: 'grab', touchAction: 'none' } : {}),
       }}
+      {...dragHandlers}
       onClick={() => {
         // Un dépôt vient de se terminer ici : ce clic n'en est pas un.
-        if (dragJustEnded()) return;
-        onClick();
+        if (dragJustEnded() || Date.now() - draggedAt.current < 300) return;
+        if (!onDoubleClick) {
+          onClick();
+          return;
+        }
+        if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+        clickTimer.current = window.setTimeout(() => {
+          clickTimer.current = null;
+          onClick();
+        }, DOUBLE_CLICK_MS);
       }}
+      onDoubleClick={
+        onDoubleClick
+          ? () => {
+              if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+              clickTimer.current = null;
+              if (count > 0) onDoubleClick();
+            }
+          : undefined
+      }
       onContextMenu={onContextMenu}
       title={badgeTitle ?? t('seat.pileTitle', { label, count })}
       type="button"
@@ -878,9 +974,33 @@ function ZonePile({
           {shownBadge}
         </span>
       )}
+      {/* Dans `body` : le plateau est mis à l'échelle, et un `fixed` sous un
+          ancêtre transformé se placerait dans son repère, pas dans l'écran. */}
+      {ghost &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed left-0 top-0 z-50 overflow-hidden rounded opacity-90 shadow-xl"
+            data-test="draw-ghost"
+            style={{
+              width: CARD_WIDTH * DRAW_GHOST_SCALE,
+              height: CARD_HEIGHT * DRAW_GHOST_SCALE,
+              transform: `translate3d(${ghost.x - (CARD_WIDTH * DRAW_GHOST_SCALE) / 2}px, ${
+                ghost.y - (CARD_HEIGHT * DRAW_GHOST_SCALE) / 2
+              }px, 0)`,
+            }}
+          >
+            <CardBack url={cardBackUrl ?? null} version="small" />
+          </div>,
+          document.body,
+        )}
     </button>
   );
 }
+
+/** Délai d'attente du clic simple sur une pile qui a aussi un double-clic. */
+const DOUBLE_CLICK_MS = 250;
+/** Le dos qui suit le pointeur quand on glisse sa bibliothèque vers sa main. */
+const DRAW_GHOST_SCALE = 0.5;
 
 export { CARD_WIDTH };
 export type { ZoneKind };

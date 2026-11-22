@@ -19,14 +19,22 @@
  * tour, mais les faire disparaître donnerait l'impression qu'ils ont quitté la
  * table.
  */
+import { PHASES } from '@mtg/shared';
 import { useGame } from '../store/game.js';
+import { useT } from '../lib/i18n/index.js';
+import { drawsThisTurn, startOfTurnIntents } from '../lib/turn.js';
+import { IdentityButton } from './TreacheryPanel.js';
 
 export function TurnOrder(): React.ReactElement | null {
+  const t = useT();
   const seats = useGame((s) => s.seats);
   const mySeat = useGame((s) => s.mySeat);
   const activeSeat = useGame((s) => s.turn.activeSeat);
   const turnNumber = useGame((s) => s.turn.turnNumber);
+  const phase = useGame((s) => s.turn.phase);
+  const send = useGame((s) => s.send);
   const status = useGame((s) => s.room?.status);
+  const identities = useGame((s) => s.treachery?.identities);
 
   // Avant le lancement, il n'y a pas d'ordre : il n'y a que des gens assis.
   if (status !== 'PLAYING' || seats.length === 0) return null;
@@ -87,6 +95,19 @@ export function TurnOrder(): React.ReactElement | null {
                 {seat.displayName}
                 {moi && <span className="ml-1 text-xs text-sky-400 font-semibold">(vous)</span>}
               </span>
+              {/* Treachery : le rôle des identités que l'on connaît ; un clic ouvre la carte. */}
+              {identities?.get(seat.id) && <IdentityButton identity={identities.get(seat.id)!} />}
+              {/* Monarque et initiative : qui les tient se lit d'un coup d'œil. */}
+              {seat.playerCounters.some((c) => c.kind === 'monarch') && (
+                <span className="shrink-0 text-xs" data-test="holds-monarch" title="Monarque : pioche une carte à sa fin de tour">
+                  👑
+                </span>
+              )}
+              {seat.playerCounters.some((c) => c.kind === 'initiative') && (
+                <span className="shrink-0 text-xs" data-test="holds-initiative" title="Initiative : s'aventure dans l'Undercity">
+                  🏰
+                </span>
+              )}
               {!seat.connected && (
                 <span className="shrink-0 text-xs text-amber-400 font-bold" title="Déconnecté">
                   ⚠
@@ -96,6 +117,54 @@ export function TurnOrder(): React.ReactElement | null {
           );
         })}
       </ol>
+
+      {/*
+        Les étapes du tour, lisibles par tous, réglables par le joueur actif.
+        Purement déclaratif (§1.1) : elles disent à la table où l'on en est —
+        « je suis en combat » — et s'écrivent au journal, rien de plus.
+      */}
+      <div className="mt-2 flex gap-0.5" data-test="phase-bar" title={t('turn.phasesHint')}>
+        {PHASES.map((p) => {
+          const current = p === phase;
+          const mine = activeSeat === mySeat;
+          return (
+            <button
+              key={p}
+              type="button"
+              disabled={!mine || current}
+              data-phase={p}
+              aria-current={current ? 'step' : undefined}
+              onClick={() => send({ type: 'SET_PHASE', phase: p })}
+              className={`flex-1 whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold transition-colors ${
+                current
+                  ? 'bg-emerald-600 text-white'
+                  : mine
+                    ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                    : 'bg-slate-800/50 text-slate-500'
+              } disabled:cursor-default`}
+            >
+              {t(`turn.phase.${p}`)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Le début de tour en un clic, offert et jamais imposé (`lib/turn.ts`). */}
+      {activeSeat === mySeat && phase === 'UNTAP' && (
+        <button
+          type="button"
+          data-test="start-of-turn"
+          className="mt-2 w-full rounded-lg bg-emerald-600 px-2 py-1.5 text-xs font-bold text-white shadow hover:bg-emerald-500 active:scale-[0.98]"
+          title={
+            drawsThisTurn(turnNumber, jouants.length) ? t('turn.startHint') : t('turn.startHintNoDraw')
+          }
+          onClick={() => {
+            for (const intent of startOfTurnIntents()) send(intent);
+          }}
+        >
+          {drawsThisTurn(turnNumber, jouants.length) ? t('turn.startUntapDraw') : t('turn.startUntap')}
+        </button>
+      )}
     </div>
   );
 }

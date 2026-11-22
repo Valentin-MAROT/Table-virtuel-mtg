@@ -162,7 +162,9 @@ export function PlayerPanel(): React.ReactElement | null {
           <button
             className="h-7 w-7 rounded-lg bg-rose-600 hover:bg-rose-500 font-black text-white text-base shadow-sm transition-all active:scale-90 flex items-center justify-center"
             data-test="life-minus"
-            onClick={() => queueLifeChange(me.id, -1, send)}
+            // Maj : par cinq. Un coup de 6/6 en six clics, c'était cinq de trop.
+            onClick={(event) => queueLifeChange(me.id, event.shiftKey ? -5 : -1, send)}
+            title="−1 (Maj : −5)"
           >
             −
           </button>
@@ -189,7 +191,14 @@ export function PlayerPanel(): React.ReactElement | null {
                 }
               });
             }}
-            title="Saisir le total"
+            // La molette ajuste d'un point par cran, dans le même cumul que les
+            // boutons : une rafale de crans ne fait qu'une ligne de journal.
+            onWheel={(event) => {
+              if (event.deltaY === 0) return;
+              event.stopPropagation();
+              queueLifeChange(me.id, event.deltaY < 0 ? 1 : -1, send);
+            }}
+            title="Saisir le total (molette : ±1)"
             type="button"
           >
             {shownLife}
@@ -209,7 +218,8 @@ export function PlayerPanel(): React.ReactElement | null {
           <button
             className="h-7 w-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-black text-white text-base shadow-sm transition-all active:scale-90 flex items-center justify-center"
             data-test="life-plus"
-            onClick={() => queueLifeChange(me.id, 1, send)}
+            onClick={(event) => queueLifeChange(me.id, event.shiftKey ? 5 : 1, send)}
+            title="+1 (Maj : +5)"
           >
             +
           </button>

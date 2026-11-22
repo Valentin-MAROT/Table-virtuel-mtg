@@ -1,5 +1,5 @@
 /** Fabrique une partie à deux sièges, decks chargés, sans base de données. */
-import type { ServerMessage } from '@mtg/shared';
+import type { GameMode, ServerMessage } from '@mtg/shared';
 import { Room, type Connection, type DeckPayload } from '../src/game/room.js';
 import { seededRandom } from '../src/game/random.js';
 import { TokenBucket } from '../src/lib/throttle.js';
@@ -69,8 +69,8 @@ const NAMES = ['Alice', 'Bob', 'Carol', 'Dan', 'Erin', 'Frank', 'Grace', 'Heidi'
 const COMMANDERS = ['Selenia', 'Kenrith', 'Atraxa', 'Prossh', 'Edgar', 'Yuriko', 'Najeela', 'Korvold'];
 
 /** Fabrique une table de `count` sièges, tous assis avec un deck de 20 cartes. */
-export function seatTable(count: number, seed = 42): Table {
-  const room = new Room('room-1', 'TEST01', 'COMMANDER', seededRandom(seed));
+export function seatTable(count: number, seed = 42, mode: GameMode = 'COMMANDER'): Table {
+  const room = new Room('room-1', 'TEST01', mode, seededRandom(seed));
   const conns: FakeConnection[] = [];
 
   for (let i = 0; i < count; i++) {

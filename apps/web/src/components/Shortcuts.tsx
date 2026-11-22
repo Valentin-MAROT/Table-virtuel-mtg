@@ -22,6 +22,10 @@ import type { CardView, Intent, ObjectId, ZoneKind } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { useCloseOnEscape } from '../lib/overlay.js';
 import { tapIntent } from '../lib/tap.js';
+import { landingSpots } from '../lib/landing.js';
+import { isCommander } from '../lib/commanders.js';
+import { nextPhase } from '../lib/turn.js';
+import { queueLifeChange } from '../lib/lifeBatch.js';
 import { useT, type BoundT } from '../lib/i18n/index.js';
 
 interface Binding {
@@ -58,6 +62,7 @@ const permanentBindings = (t: BoundT): Binding[] => [
   { keys: `G / ${t('keys.delete')}`, label: t('card.toGraveyard') },
   { keys: 'E', label: t('card.exile') },
   { keys: 'L / B', label: t('shortcut.libraryTopBottom') },
+  { keys: 'K', label: t('card.toCommand') },
 ];
 
 const pileBindings = (t: BoundT): Binding[] => [
@@ -65,16 +70,21 @@ const pileBindings = (t: BoundT): Binding[] => [
   { keys: 'H', label: t('card.toHand') },
   { keys: 'G / E', label: t('shortcut.graveyardOrExile') },
   { keys: 'L / B', label: t('shortcut.libraryTopBottom') },
+  { keys: 'K', label: t('card.toCommand') },
 ];
 
 /** Raccourcis agissant quand aucune carte n'est survolée. */
 const globalBindings = (t: BoundT): Binding[] => [
   { keys: 'D', label: t('tableMenu.drawCard') },
+  { keys: t('keys.space'), label: t('toolbar.passTurn') },
+  { keys: t('keys.shiftSpace'), label: t('shortcut.nextPhase') },
+  { keys: '+ / −', label: t('shortcut.myLife') },
+  { keys: 'Ctrl + A', label: t('shortcut.selectAllMine') },
   { keys: 'U', label: t('tableMenu.untapAll') },
-  { keys: 'S', label: t('tableMenu.shuffleLibrary') },
-  { keys: 'E', label: t('toolbar.passTurn') },
+  { keys: 'S S', label: t('tableMenu.shuffleLibrary') },
+  { keys: 'E E', label: t('toolbar.passTurn') },
   { keys: 'Y', label: t('zoneMenu.scry1') },
-  { keys: 'M', label: t('zoneMenu.mill1') },
+  { keys: 'M M', label: t('zoneMenu.mill1') },
   { keys: 'Ctrl + Z', label: t('toolbar.undo') },
   { keys: t('keys.enter'), label: t('shortcut.writeMessage') },
   { keys: t('keys.esc'), label: t('shortcut.clearSelection') },
@@ -87,11 +97,27 @@ const pointerBindings = (t: BoundT): Binding[] => [
   { keys: t('keys.altDrag'), label: t('shortcut.lassoAll') },
   { keys: t('keys.rightDrag'), label: t('shortcut.panTable') },
   { keys: t('keys.middleClick'), label: t('shortcut.panTableAnywhere') },
+  { keys: t('keys.click'), label: t('shortcut.selectCard') },
   { keys: t('keys.ctrlClick'), label: t('shortcut.toggleSelection') },
   { keys: t('keys.dragCard'), label: t('shortcut.dropInZone') },
   { keys: t('keys.doubleClick'), label: t('shortcut.tapUntap') },
+  { keys: t('keys.doubleClickHand'), label: t('card.play') },
+  { keys: t('keys.libraryGesture'), label: t('tableMenu.drawCard') },
+  { keys: t('keys.shiftDropLibrary'), label: t('zone.libraryBottom') },
+  { keys: t('keys.dropOnPermanent'), label: t('shortcut.attachDrop') },
+  { keys: t('keys.wheelCounter'), label: t('shortcut.wheelCounter') },
   { keys: t('keys.rightClick'), label: t('shortcut.contextMenu') },
 ];
+
+/** Globales irréversibles : ce qu'une seconde frappe confirme, et comment le dire. */
+const RISKY_GLOBALS: Readonly<Record<string, string>> = {
+  e: 'passer le tour',
+  s: 'mélanger votre bibliothèque',
+  m: 'meuler une carte',
+};
+/** Délai de la seconde frappe. */
+const CONFIRM_MS = 2000;
+let armed: { key: string; at: number } | null = null;
 
 export function useShortcuts(onHelp: () => void): void {
   useEffect(() => {
@@ -109,7 +135,50 @@ export function useShortcuts(onHelp: () => void): void {
         state.send({ type: 'UNDO_LAST' });
         return;
       }
+      // Une fenêtre ouverte garde Espace et Ctrl+A pour elle : valider un
+      // dialogue à la barre d'espace ne doit pas, en plus, passer le tour.
+      const modalOpen =
+        state.pendingLook !== null || document.querySelector('[data-test="dialog-backdrop"]') !== null;
+
+      // Ctrl+A : tous mes permanents, au lieu de sélectionner le texte de la page.
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !modalOpen) {
+        event.preventDefault();
+        state.setSelection(
+          new Set(
+            [...state.cards.values()]
+              .filter((c) => c.zone.kind === 'BATTLEFIELD' && c.zone.seat === state.mySeat)
+              .map((c) => c.id),
+          ),
+        );
+        return;
+      }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      /*
+       * Espace : passer le tour, le raccourci qu'on cherche d'instinct (Arena,
+       * MTGO). Un seul appui, mais **seulement pendant son propre tour** —
+       * passer celui d'un autre n'a pas de sens, et c'est là que l'accident
+       * coûterait. Maj + Espace avance d'une étape (`lib/turn.ts`).
+       *
+       * Le bouton qui a gardé le focus après un clic s'activerait aussi sur
+       * Espace (au relâchement) : on lui retire le focus avant.
+       */
+      if (event.key === ' ' && !modalOpen) {
+        event.preventDefault();
+        if (target instanceof HTMLButtonElement) target.blur();
+        if (event.repeat || state.room?.status !== 'PLAYING') return;
+        if (state.turn.activeSeat !== state.mySeat) {
+          useGame.setState({ lastReject: 'Ce n’est pas votre tour : Espace ne passe que le vôtre.' });
+          return;
+        }
+        if (event.shiftKey) {
+          const next = nextPhase(state.turn.phase);
+          state.send(next ? { type: 'SET_PHASE', phase: next } : { type: 'END_TURN' });
+        } else {
+          state.send({ type: 'END_TURN' });
+        }
+        return;
+      }
 
       if (event.key === 'Escape') {
         state.setSelection(new Set());
@@ -133,6 +202,7 @@ export function useShortcuts(onHelp: () => void): void {
           : [hovered.id]
         : selected.map((card) => card.id);
 
+      const key = event.key.toLowerCase();
       if (focus && targets.length > 0) {
         const intents = contextualIntents(event.key, focus, targets);
         if (intents.length > 0) {
@@ -140,11 +210,33 @@ export function useShortcuts(onHelp: () => void): void {
           for (const intent of intents) state.send(intent);
           return;
         }
+        // Une carte est visée mais la touche n'a pas de sens pour elle — `E`
+        // sur une carte déjà en exil, `S` sur le cimetière. Retomber sur le
+        // global passait le tour ou mélangeait la bibliothèque à la place
+        // d'une action de carte : on ne fait rien.
+        if (RISKY_GLOBALS[key]) return;
       }
 
       // --- Aucune carte concernée, ou touche sans effet ici : global. -------
+      /*
+       * Les globales qu'on ne défait pas (passer le tour, mélanger, meuler) se
+       * confirment par une seconde frappe. La même lettre fait une action de
+       * carte au survol : un curseur qui glisse d'un pixel hors de la carte la
+       * transformait sans prévenir.
+       */
+      const risky = RISKY_GLOBALS[key];
+      if (risky) {
+        const now = Date.now();
+        if (!armed || armed.key !== key || now - armed.at > CONFIRM_MS) {
+          armed = { key, at: now };
+          useGame.setState({ lastReject: `Appuyez encore sur ${key.toUpperCase()} pour ${risky}.` });
+          return;
+        }
+        armed = null;
+        useGame.setState({ lastReject: null });
+      }
       const seat = state.mySeat;
-      switch (event.key.toLowerCase()) {
+      switch (key) {
         case 'd':
           state.send({ type: 'DRAW', count: 1 });
           break;
@@ -159,6 +251,14 @@ export function useShortcuts(onHelp: () => void): void {
           break;
         case 'y':
           state.send({ type: 'LOOK', zone: { seat, kind: 'LIBRARY' }, count: 1, mode: 'SCRY' });
+          break;
+        // + / − sans carte visée : sa propre vie, dans le même cumul que les
+        // boutons (une rafale = une ligne de journal). Sur un permanent visé,
+        // ces touches restent des marqueurs +1/+1 (traité plus haut).
+        case '+':
+        case '=':
+        case '-':
+          if (!focus) queueLifeChange(seat, key === '-' ? -1 : 1, state.send);
           break;
         /*
          * `M` comme « meuler », alors que `M` sert déjà, **sur une carte visée**,
@@ -200,13 +300,33 @@ function contextualIntents(rawKey: string, focus: CardView, targets: ObjectId[])
   const zone = (kind: ZoneKind) => ({ seat: focus.owner, kind });
   const move = (kind: ZoneKind, extra: Record<string, unknown> = {}): Intent[] =>
     targets.map((cardId) => ({ type: 'MOVE_CARD', cardId, to: zone(kind), ...extra }) as Intent);
+  /** Sur le terrain, chaque carte à sa propre place libre (`lib/landing.ts`). */
+  const play = (extra: Record<string, unknown> = {}): Intent[] => {
+    const spots = landingSpots(focus.owner, targets.length);
+    return targets.map(
+      (cardId, i) => ({ type: 'MOVE_CARD', cardId, to: zone('BATTLEFIELD'), ...spots[i], ...extra }) as Intent,
+    );
+  };
+
+  // K : renvoyer en zone de commandement, de partout — seuls les commandants
+  // du lot partent (`lib/commanders.ts`).
+  if (key === 'k') {
+    if (focus.zone.kind === 'COMMAND' || focus.zone.kind === 'LIBRARY') return [];
+    const { cards, seats } = useGame.getState();
+    return targets.flatMap((cardId) => {
+      const card = cards.get(cardId);
+      return card && isCommander(card, seats)
+        ? [{ type: 'MOVE_CARD', cardId, to: { seat: card.owner, kind: 'COMMAND' } } as Intent]
+        : [];
+    });
+  }
 
   if (focus.zone.kind === 'HAND') {
     switch (key) {
       case 'p':
-        return move('BATTLEFIELD', { x: 60, y: 60 });
+        return play();
       case 'm':
-        return move('BATTLEFIELD', { x: 60, y: 60, faceDown: true });
+        return play({ faceDown: true });
       case 's':
         return move('STACK_NOTE');
       case 'g':
@@ -269,7 +389,7 @@ function contextualIntents(rawKey: string, focus: CardView, targets: ObjectId[])
   if (['GRAVEYARD', 'EXILE', 'COMMAND', 'STACK_NOTE'].includes(focus.zone.kind)) {
     switch (key) {
       case 'p':
-        return move('BATTLEFIELD', { x: 60, y: 60 });
+        return play();
       case 'h':
         return move('HAND');
       case 'g':

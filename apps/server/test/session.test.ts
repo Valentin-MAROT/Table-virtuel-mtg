@@ -87,7 +87,8 @@ describe('journal public', () => {
     // La phase n'a pas changé : aucun event ne doit le prétendre.
     expect(eventTypes(b)).not.toContain('PHASE_CHANGED');
     expect(eventTypes(b)).toContain('NOTED');
-    expect(room.state.phase).toBe('MAIN1');
+    // Une partie commence au dégagement : c'est la phase posée par le lancement.
+    expect(room.state.phase).toBe('UNTAP');
   });
 
   it('ne cite jamais un objet de bibliothèque dans ses ancres', async () => {

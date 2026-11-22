@@ -94,7 +94,16 @@ export interface ResolveLook {
 }
 export interface ReorderTop { type: 'REORDER_TOP'; zone: ZoneRef; order: ObjectId[] }
 export interface Draw { type: 'DRAW'; count: number }
-export interface Mulligan { type: 'MULLIGAN'; keep?: number }
+export interface Mulligan {
+  type: 'MULLIGAN';
+  keep?: number;
+  /**
+   * Mulligan gratuit : la main repart et sept cartes reviennent, sans ajouter
+   * de carte à remettre dessous. Au choix de la table, autant de fois qu'elle
+   * le veut — le premier mulligan gratuit du Commander n'est pas imposé.
+   */
+  free?: boolean;
+}
 
 /** Meule : n cartes du dessus de sa bibliothèque vers son cimetière. */
 export interface Mill { type: 'MILL'; count: number }
@@ -303,6 +312,15 @@ export interface FlipCoin { type: 'FLIP_COIN'; count?: number }
 export interface EndTurn { type: 'END_TURN' }
 export interface SetPhase { type: 'SET_PHASE'; phase: PhaseName }
 export interface Concede { type: 'CONCEDE' }
+/**
+ * Dévoiler sa propre identité (Treachery, règle 702.TR01c).
+ *
+ * C'est une action spéciale : elle ne passe pas par la pile et ne se reprend
+ * pas. Le coût de dévoilement et la restriction *undercover* sont l'affaire de
+ * la table, comme tout coût ici (§1.1) — le serveur retourne la carte, il ne
+ * vérifie pas qu'on l'a payée.
+ */
+export interface Unveil { type: 'UNVEIL' }
 export interface ChatBubble { type: 'CHAT_BUBBLE'; text: string }
 export interface Cursor { type: 'CURSOR'; x: number; y: number; holding?: ObjectId }
 export interface UndoLast { type: 'UNDO_LAST' }
@@ -351,7 +369,7 @@ export type Intent =
   | Mill | ExileTop | RandomDiscard | Scoop | SetPrinting | TakeBack | Cascade | Proliferate
   | Reveal | RevealTop | RevealHand | UnrevealHand
   | SetLife | AdjustLife | SetCommanderDamage | SetPlayerCounter
-  | RollDie | FlipCoin | EndTurn | SetPhase | Concede | ChatBubble | Cursor | UndoLast
+  | RollDie | FlipCoin | EndTurn | SetPhase | Concede | Unveil | ChatBubble | Cursor | UndoLast
   | SitDown | StandUp | CloseRoom | LoadDeck | StartGame | RestartGame | SwapSideboard | SetSeatCosmetics;
 
 export type IntentType = Intent['type'];

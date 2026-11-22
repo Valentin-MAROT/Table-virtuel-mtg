@@ -4,6 +4,8 @@
  * vers `ParsedDeck`, puis vers `ResolvedDeck` après résolution Scryfall.
  */
 
+import type { ShelfToken } from './tokenShelf.js';
+
 export const DECK_SOURCES = ['MANUAL', 'ARCHIDEKT', 'MOXFIELD', 'TEXT'] as const;
 export type DeckSource = (typeof DECK_SOURCES)[number];
 
@@ -119,5 +121,12 @@ export interface DeckSummary {
    * permet à l'interface de ne rien afficher tant que la question ne se pose pas.
    */
   pinnedPrintings: Array<{ scryfallId: string; name: string; setCode: string }>;
+  /**
+   * L'étagère à jetons de ce deck (`deck/tokenShelf.ts`). Elle voyage avec le
+   * résumé, et non par une route à part : quarante couples identifiant-nom au
+   * plus, et c'est la liste des decks qui sert de source quand on copie
+   * l'étagère d'un deck dans un autre.
+   */
+  tokenShelf: ShelfToken[];
   colorIdentity: string[];
 }
