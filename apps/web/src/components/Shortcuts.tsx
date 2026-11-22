@@ -22,6 +22,7 @@ import type { CardView, Intent, ObjectId, ZoneKind } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { useCloseOnEscape } from '../lib/overlay.js';
 import { tapIntent } from '../lib/tap.js';
+import { declareAttack } from '../lib/arrows.js';
 import { landingSpots } from '../lib/landing.js';
 import { isCommander } from '../lib/commanders.js';
 import { nextPhase } from '../lib/turn.js';
@@ -54,6 +55,7 @@ const handBindings = (t: BoundT): Binding[] => [
 
 const permanentBindings = (t: BoundT): Binding[] => [
   { keys: 'T', label: t('shortcut.tapUntap') },
+  { keys: 'A', label: t('shortcut.attack') },
   { keys: 'F', label: t('card.transform') },
   { keys: 'M', label: t('shortcut.flipFace') },
   { keys: 'C', label: t('card.copyAsToken') },
@@ -203,6 +205,16 @@ export function useShortcuts(onHelp: () => void): void {
         : selected.map((card) => card.id);
 
       const key = event.key.toLowerCase();
+      // A : attaquer avec ce qu'on contrôle parmi les permanents visés. Ce
+      // n'est pas un intent simple — à plus de deux joueurs il ouvre la visée.
+      if (key === 'a' && focus?.zone.kind === 'BATTLEFIELD' && !event.ctrlKey && !event.metaKey) {
+        const mine = targets.filter((id) => state.cards.get(id)?.controller === state.mySeat);
+        if (mine.length > 0) {
+          event.preventDefault();
+          declareAttack(mine);
+        }
+        return;
+      }
       if (focus && targets.length > 0) {
         const intents = contextualIntents(event.key, focus, targets);
         if (intents.length > 0) {

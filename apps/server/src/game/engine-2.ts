@@ -7,6 +7,7 @@ import { isManaCounter, mulliganBottomCount } from '@mtg/shared';
 import type { Counter, Intent, LookSummary, ObjectId, PhaseName, PublicCardView, SeatId, ZoneRef } from '@mtg/shared';
 import { IntentError } from './errors.js';
 import { playerLost, revealIdentity } from './treachery.js';
+import { applyArrowIntent, clearAllArrows } from './arrows.js';
 import { toLookView, toPublicView } from './projection.js';
 import {
   canSeeIdentity,
@@ -1262,6 +1263,8 @@ export function applyIntentPart2(
       return {
         emissions: [
           ...mulligansOublies,
+          // Les flèches décrivent le tour qui s'achève : elles s'en vont avec lui.
+          ...clearAllArrows(state),
           {
             audience: ALL,
             build: () => ({
@@ -1275,6 +1278,10 @@ export function applyIntentPart2(
         ],
       };
     }
+
+    case 'ADD_ARROWS':
+    case 'CLEAR_ARROWS':
+      return applyArrowIntent(state, seat, intent);
 
     case 'SET_PHASE': {
       /*

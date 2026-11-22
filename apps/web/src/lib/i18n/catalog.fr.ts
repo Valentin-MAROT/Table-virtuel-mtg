@@ -73,6 +73,14 @@ export const fr = {
   'cue.from.EXILE': 'depuis l’exil',
   'cue.from.LIBRARY': 'depuis sa bibliothèque',
   'cue.dismiss': 'Cliquer pour écarter',
+  'arrow.attack': 'Attaquer',
+  'arrow.block': 'Bloquer…',
+  'arrow.target': 'Cibler…',
+  'arrow.clear': 'Retirer mes flèches',
+  'arrow.pick.ATTACK': 'Cliquez le plateau du joueur attaqué',
+  'arrow.pick.BLOCK': 'Cliquez la créature que vous bloquez',
+  'arrow.pick.TARGET': 'Cliquez la cible : une carte ou le plateau d’un joueur',
+  'arrow.pickCancel': 'Échap ou clic droit pour annuler',
   'opening.title': 'Votre main de départ',
   'opening.keep': 'Garder',
   'opening.keepHint': 'Garder ces cartes et commencer la partie',
@@ -778,6 +786,7 @@ export const fr = {
 
   // — Raccourcis clavier : gestes et aide ————————————————————————
   'shortcut.tapUntap': 'Engager / dégager',
+  'shortcut.attack': 'Attaquer avec la carte (flèche vers le joueur)',
   'shortcut.flipFace': 'Retourner face cachée / visible',
   'shortcut.plusCounter': 'Marqueur +1/+1',
   'shortcut.libraryTopBottom': 'Dessus / dessous de la bibliothèque',

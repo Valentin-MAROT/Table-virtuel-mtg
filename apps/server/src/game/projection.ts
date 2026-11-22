@@ -223,6 +223,7 @@ export function projectSnapshot(state: GameState, seat: SeatId | null): Snapshot
   };
 
   if (topReveals.length > 0) snapshot.topReveals = topReveals;
+  if (state.arrows.size > 0) snapshot.arrows = [...state.arrows.values()];
 
   // Les identités Treachery, filtrées pour ce siège par leur propre règle de
   // visibilité : la sienne, et celles qui sont face visible.

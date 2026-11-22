@@ -1,5 +1,6 @@
 /** Events serveur → client. Voir docs/protocol.md §7. */
 import type {
+  Arrow,
   CardView,
   Counter,
   GameMode,
@@ -80,6 +81,8 @@ export type Event =
   | { type: 'COIN_FLIPPED'; seat: SeatId; results: ('HEADS' | 'TAILS')[] }
   | { type: 'TURN_ENDED'; seat: SeatId; nextSeat: SeatId; turnNumber: number }
   | { type: 'PHASE_CHANGED'; phase: PhaseName }
+  | { type: 'ARROWS_ADDED'; arrows: Arrow[] }
+  | { type: 'ARROWS_REMOVED'; ids: ObjectId[] }
   | { type: 'GAME_STARTED'; startingSeat: SeatId; snapshotIds: Record<SeatId, string> }
   /**
    * `team` n'existe qu'en Treachery, où l'on gagne par équipe : il dit laquelle,
@@ -127,6 +130,8 @@ export interface Snapshot {
   cards: CardView[];
   zoneCounts: OpaqueZoneView[];
   labels: Label[];
+  /** Flèches en cours (cible, attaque, blocage) ; absentes s'il n'y en a pas. */
+  arrows?: Arrow[];
   pendingLook?: { lookId: string; mode: LookMode; cards: PublicCardView[] };
   /**
    * Révélations permanentes du dessus de bibliothèque en cours, un élément par

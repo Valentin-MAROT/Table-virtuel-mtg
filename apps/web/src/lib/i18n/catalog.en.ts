@@ -64,6 +64,14 @@ export const en = defineTranslation({
   'cue.from.EXILE': 'from exile',
   'cue.from.LIBRARY': 'from their library',
   'cue.dismiss': 'Click to dismiss',
+  'arrow.attack': 'Attack',
+  'arrow.block': 'Block…',
+  'arrow.target': 'Target…',
+  'arrow.clear': 'Remove my arrows',
+  'arrow.pick.ATTACK': 'Click the board of the player you attack',
+  'arrow.pick.BLOCK': 'Click the creature you block',
+  'arrow.pick.TARGET': 'Click the target: a card or a player’s board',
+  'arrow.pickCancel': 'Esc or right-click to cancel',
   'opening.title': 'Your opening hand',
   'opening.keep': 'Keep',
   'opening.keepHint': 'Keep these cards and start playing',
@@ -690,6 +698,7 @@ export const en = defineTranslation({
 
   // — Raccourcis clavier : gestes et aide ————————————————————————
   'shortcut.tapUntap': 'Tap / untap',
+  'shortcut.attack': 'Attack with the card (arrow to the player)',
   'shortcut.flipFace': 'Turn face down / face up',
   'shortcut.plusCounter': '+1/+1 counter',
   'shortcut.libraryTopBottom': 'Top / bottom of the library',

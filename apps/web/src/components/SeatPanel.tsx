@@ -432,7 +432,11 @@ export function SeatPanel({
       </div>
 
       {/* Bandeau d'identité, en haut à droite comme sur la table de référence. */}
-      <div className="absolute right-2 top-2 flex items-center gap-2 rounded bg-slate-950/80 px-2 py-1 text-xs ring-1 ring-white/10">
+      <div
+        className="absolute right-2 top-2 flex items-center gap-2 rounded bg-slate-950/80 px-2 py-1 text-xs ring-1 ring-white/10"
+        // Le point d'arrivée d'une flèche qui vise ce joueur (`ArrowLayer`).
+        data-seat-anchor={seat.id}
+      >
         <span className="h-2 w-2 rounded-full" style={{ background: seat.color }} />
         <span className="font-medium text-slate-200">{seat.displayName}</span>
         {!seat.connected && <span className="text-amber-400">{t('seat.disconnected')}</span>}

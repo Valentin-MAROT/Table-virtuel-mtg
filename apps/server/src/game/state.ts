@@ -3,6 +3,7 @@
  * Rien ici ne sort tel quel : tout passe par `projection.ts`.
  */
 import type {
+  Arrow,
   Counter,
   GameMode,
   Label,
@@ -176,6 +177,8 @@ export interface GameState {
   /** Ordre des objets par zone. Clé : `seat|kind`. */
   zones: Map<string, ObjectId[]>;
   labels: Map<ObjectId, Label>;
+  /** Flèches en cours (`arrows.ts`). */
+  arrows: Map<ObjectId, Arrow>;
   pendingLooks: Map<string, PendingLook>;
   log: LogEntry[];
   createdAt: number;

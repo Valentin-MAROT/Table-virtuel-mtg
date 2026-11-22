@@ -1,5 +1,5 @@
 /** Intents client → serveur. Voir docs/protocol.md §6. */
-import type { Counter, LookMode, ObjectId, PhaseName, Rotation, SeatId, ZoneRef } from './core.js';
+import type { ArrowEnd, ArrowKind, Counter, LookMode, ObjectId, PhaseName, Rotation, SeatId, ZoneRef } from './core.js';
 
 export interface MoveCard {
   type: 'MOVE_CARD';
@@ -359,6 +359,11 @@ export interface SetSeatCosmetics {
   displayName?: string;
 }
 
+/** Trace une flèche de chacune des cartes `from` vers `to` (§ flèches). */
+export interface AddArrows { type: 'ADD_ARROWS'; kind: ArrowKind; from: ObjectId[]; to: ArrowEnd }
+/** Efface les flèches que l'on a tracées. */
+export interface ClearArrows { type: 'CLEAR_ARROWS' }
+
 export type Intent =
   | MoveCard | MoveCards | Tap | Untap | UntapAll | SetRotation | FlipFace
   | TurnFaceDown | TurnFaceUp | PeekFaceDown
@@ -369,6 +374,7 @@ export type Intent =
   | Mill | ExileTop | RandomDiscard | Scoop | SetPrinting | TakeBack | Cascade | Proliferate
   | Reveal | RevealTop | RevealHand | UnrevealHand
   | SetLife | AdjustLife | SetCommanderDamage | SetPlayerCounter
+  | AddArrows | ClearArrows
   | RollDie | FlipCoin | EndTurn | SetPhase | Concede | Unveil | ChatBubble | Cursor | UndoLast
   | SitDown | StandUp | CloseRoom | LoadDeck | StartGame | RestartGame | SwapSideboard | SetSeatCosmetics;
 

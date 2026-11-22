@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { noteLiveEvent, resetCues } from '../lib/actionCues.js';
 import type {
+  Arrow,
   CardView,
   CursorState,
   Event,
@@ -75,6 +76,8 @@ interface GameStore {
   cards: Map<ObjectId, CardView>;
   zoneCounts: Map<string, number>;
   labels: Label[];
+  /** Flèches tracées sur la table (cible, attaque, blocage) — `ArrowLayer`. */
+  arrows: Arrow[];
   log: LogEntry[];
   cursors: CursorState[];
   chat: ChatBubble[];
@@ -272,7 +275,7 @@ function dropPrediction(cardId: ObjectId): void {
 function blankRoomState(): Pick<
   GameStore,
   | 'status' | 'statusDetail' | 'seq' | 'mySeat' | 'roomCode' | 'room' | 'gameOver' | 'treachery'
-  | 'turn' | 'turnCue' | 'seats' | 'cards' | 'zoneCounts' | 'labels' | 'log' | 'cursors' | 'chat'
+  | 'turn' | 'turnCue' | 'arrows' | 'seats' | 'cards' | 'zoneCounts' | 'labels' | 'log' | 'cursors' | 'chat'
   | 'pendingLook' | 'publicReveal' | 'looksInProgress' | 'handsRevealed' | 'topReveals' | 'lastReject' | 'selection'
   | 'hoveredCardId' | 'hoveredPreview' | 'drag' | 'predicted' | 'attachPending' | 'menu'
 > {
@@ -300,6 +303,7 @@ function blankRoomState(): Pick<
     cards: new Map(),
     zoneCounts: new Map(),
     labels: [],
+    arrows: [],
     log: [],
     cursors: [],
     chat: [],
@@ -347,6 +351,7 @@ export const useGame = create<GameStore>((set, get) => ({
   cards: new Map(),
   zoneCounts: new Map(),
   labels: [],
+  arrows: [],
   log: [],
   cursors: [],
   chat: [],
@@ -665,6 +670,7 @@ function applySnapshot(snapshot: Snapshot, seat: SeatId | null, set: Setter): vo
     cards,
     zoneCounts,
     labels: snapshot.labels,
+    arrows: snapshot.arrows ?? [],
     log: snapshot.logTail,
     pendingLook: snapshot.pendingLook ?? null,
     // Un snapshot remplace l'état : ce qui n'y figure pas n'a plus cours.
@@ -1041,6 +1047,16 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
         turnCue: { id: (get().turnCue?.id ?? 0) + 1, seat: event.nextSeat, turnNumber: event.turnNumber },
       });
       return;
+
+    case 'ARROWS_ADDED':
+      set({ arrows: [...get().arrows, ...event.arrows] });
+      return;
+
+    case 'ARROWS_REMOVED': {
+      const gone = new Set(event.ids);
+      set({ arrows: get().arrows.filter((a) => !gone.has(a.id)) });
+      return;
+    }
 
     case 'PHASE_CHANGED':
       set({ turn: { ...get().turn, phase: event.phase } });

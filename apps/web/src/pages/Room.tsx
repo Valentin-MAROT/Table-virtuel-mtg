@@ -11,6 +11,7 @@ import { DiceBar, Toolbar } from '../components/Toolbar.js';
 import { LookModal } from '../components/LookModal.js';
 import { TurnAnnounce } from '../components/TurnAnnounce.js';
 import { PlayedCardSpotlight } from '../components/PlayedCardSpotlight.js';
+import { ArrowLayer } from '../components/ArrowLayer.js';
 import { PublicRevealModal } from '../components/PublicRevealModal.js';
 import { TokenSearch } from '../components/TokenSearch.js';
 import { CountersPanel } from '../components/CountersPanel.js';
@@ -378,6 +379,7 @@ export function RoomPage(): React.ReactElement {
       <LookModal />
       <TurnAnnounce />
       <PlayedCardSpotlight />
+      <ArrowLayer />
       <PublicRevealModal />
       <ZonePanel onOpenChange={setZonePanel} />
       {menu?.kind === 'CARD' && (

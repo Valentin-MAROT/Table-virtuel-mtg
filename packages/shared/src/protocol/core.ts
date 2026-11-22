@@ -257,6 +257,24 @@ export interface OpaqueZoneView {
  * pas — un « 2/2 » qui pompe, un compteur d'orages, un décompte de tour.
  * Sans `value`, c'est une simple note de texte.
  */
+/**
+ * Une flèche tracée sur la table : « je cible ceci », « j'attaque », « je
+ * bloque ». Purement déclarative (§1.1) — elle ne fait rien, elle **dit** à la
+ * table ce qu'on fait, là où le journal le disait en phrases qu'on ne lisait
+ * pas. Toutes s'effacent au passage du tour ; celles dont une extrémité quitte
+ * le champ de bataille s'effacent aussitôt.
+ */
+export type ArrowKind = 'TARGET' | 'ATTACK' | 'BLOCK';
+export type ArrowEnd = { card: ObjectId } | { seat: SeatId };
+export interface Arrow {
+  id: ObjectId;
+  /** Qui l'a tracée. */
+  seat: SeatId;
+  kind: ArrowKind;
+  from: ObjectId;
+  to: ArrowEnd;
+}
+
 export interface Label {
   id: ObjectId;
   text: string;

@@ -5,6 +5,7 @@
  * resynchronisation lui-même stocke les variantes par siège, pour qu'un client
  * qui rejoue un delta ne voie jamais plus que ce qu'il aurait vu en direct.
  */
+import { pruneArrows } from './arrows.js';
 import { ulid } from 'ulid';
 import type {
   CursorState,
@@ -225,6 +226,7 @@ export class Room {
       objects: new Map(),
       zones: new Map(),
       labels: new Map(),
+      arrows: new Map(),
       pendingLooks: new Map(),
       log: [],
       createdAt: Date.now(),
@@ -1264,7 +1266,8 @@ export class Room {
         : null;
 
       const result = applyIntent(this.state, conn.seatId, intent, this.rng, deps);
-      const seq = this.commit(conn.seatId, result.emissions);
+      // Une carte qui quitte le champ emporte les flèches qui la touchaient.
+      const seq = this.commit(conn.seatId, [...result.emissions, ...pruneArrows(this.state)]);
 
       if (printingBefore && wasPrinting && seq !== null) {
         this.syncDeckPrinting(conn.seatId, wasPrinting, printingBefore);

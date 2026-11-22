@@ -222,6 +222,13 @@ const intentUnion = z.discriminatedUnion('type', [
 
   z.object({ type: z.literal('ROLL_DIE'), sides: z.number().int().min(2).max(1000), count: z.number().int().min(1).max(20).optional() }).strict(),
   z.object({ type: z.literal('FLIP_COIN'), count: z.number().int().min(1).max(20).optional() }).strict(),
+  z.object({
+    type: z.literal('ADD_ARROWS'),
+    kind: z.enum(['TARGET', 'ATTACK', 'BLOCK']),
+    from: z.array(objectId).min(1).max(64),
+    to: z.union([z.object({ card: objectId }).strict(), z.object({ seat: seatId }).strict()]),
+  }).strict(),
+  z.object({ type: z.literal('CLEAR_ARROWS') }).strict(),
   z.object({ type: z.literal('END_TURN') }).strict(),
   z.object({ type: z.literal('SET_PHASE'), phase: z.enum(PHASES) }).strict(),
   z.object({ type: z.literal('CONCEDE') }).strict(),

@@ -232,6 +232,8 @@ export function reviveState(origin: ReplayOrigin): GameState {
     objects,
     zones,
     labels,
+    // Les flèches sont éphémères : un point zéro de rediffusion n'en porte pas.
+    arrows: new Map(),
     pendingLooks: new Map(),
     log: origin.logTail,
     createdAt: 0,

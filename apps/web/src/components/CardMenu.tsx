@@ -39,6 +39,7 @@ import {
 } from './CardSprite.js';
 
 import { landingSpots } from '../lib/landing.js';
+import { declareAttack, startPick } from '../lib/arrows.js';
 import { alignPositions } from '../lib/align.js';
 import { isCommander } from '../lib/commanders.js';
 import { menuJustOpenedByTouch } from './DragLayer.js';
@@ -775,6 +776,23 @@ export function CardMenu({ card, x, y, onClose, onPickPrinting }: CardMenuProps)
   }
 
   if (inZone === 'BATTLEFIELD') {
+    /*
+     * Combat et flèches, en tête : ce sont les gestes qu'on fait à chaque tour
+     * sur une créature, et ils ne valent que pour ce qu'on contrôle — le
+     * serveur refuserait une flèche partie de la carte d'un autre.
+     */
+    const mine = targets.filter((id) => useGame.getState().cards.get(id)?.controller === mySeat);
+    if (mine.length > 0 && !facedown) {
+      entries.push(
+        { label: t('arrow.attack'), shortcut: 'A', run: () => { declareAttack(mine); onClose(); } },
+        { label: t('arrow.block'), run: () => { startPick('BLOCK', mine); onClose(); } },
+        { label: t('arrow.target'), run: () => { startPick('TARGET', mine); onClose(); } },
+      );
+    }
+    if (useGame.getState().arrows.some((a) => a.seat === mySeat)) {
+      entries.push({ label: t('arrow.clear'), run: () => { send({ type: 'CLEAR_ARROWS' }); onClose(); } });
+    }
+
     /*
      * Aligner la prise du lasso.
      *
