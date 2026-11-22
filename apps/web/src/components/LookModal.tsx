@@ -20,6 +20,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PublicCardView } from '@mtg/shared';
+import { primaryBucket, quickBuckets } from '../lib/lookBuckets.js';
 import { useGame } from '../store/game.js';
 import { CardSprite } from './CardSprite.js';
 import { ManaCost } from './ManaCost.js';
@@ -29,7 +30,8 @@ import { keywordSearchTerms, resolveCardImage, useT, type BoundT } from '../lib/
 import { useLanguage } from '../store/prefs.js';
 import { TYPE_FAMILIES, matchesCardQuery, typeFamilyKey } from './ZonePanel.js';
 
-export type Bucket = 'top' | 'bottom' | 'hand' | 'graveyard' | 'exile' | 'battlefield' | 'sideboard';
+import type { Bucket } from '../lib/lookBuckets.js';
+export type { Bucket };
 
 export interface BucketDef {
   key: Bucket;
@@ -115,6 +117,23 @@ const bucketDefs = (t: BoundT): BucketDef[] => [
   },
 ];
 
+const QUICK_STYLE: Partial<Record<Bucket, string>> = {
+  top: 'bg-slate-500 text-white',
+  bottom: 'bg-amber-600 text-white',
+  graveyard: 'bg-rose-700 text-white',
+  hand: 'bg-sky-600 text-white',
+  battlefield: 'bg-emerald-600 text-white',
+};
+
+const quickLabel = (t: BoundT, bucket: Bucket): string =>
+  ({
+    top: t('consult.quickTop'),
+    bottom: t('consult.quickBottom'),
+    graveyard: t('consult.quickGraveyard'),
+    hand: t('consult.bucketHandShort'),
+    battlefield: t('consult.bucketBattlefieldShort'),
+  })[bucket as 'top'] ?? bucket;
+
 /** Au-delà de ce nombre, bascule en mode fouille riche avec filtres et grilles. */
 const LARGE_LOOK = 8;
 
@@ -165,6 +184,8 @@ export function LookModal(): React.ReactElement | null {
   const [sort, setSort] = useState<Sort>('recu');
   const [inspectedCardId, setInspectedCardId] = useState<string | null>(null);
   const [activeMenuCardId, setActiveMenuCardId] = useState<string | null>(null);
+  /** La carte sous le pointeur : les flèches haut et bas s'y appliquent. */
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [cardDensity, setCardDensity] = useState<'comfortable' | 'standard' | 'compact'>('comfortable');
   const filterRef = useRef<HTMLInputElement>(null);
 
@@ -219,6 +240,27 @@ export function LookModal(): React.ReactElement | null {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [pending, activeMenuCardId, inspectedCardId, hoverPreview]);
+
+  /*
+   * Flèches sur la carte survolée, pour un scry, un surveil ou un regard :
+   * bas l'envoie à la destination principale du mode (dessous, cimetière),
+   * haut la remet dessus. Trier trois cartes sans viser un seul bouton.
+   */
+  useEffect(() => {
+    const mode = pending?.mode;
+    if (!pending || !hoveredId || (mode !== 'SCRY' && mode !== 'SURVEIL' && mode !== 'PEEK')) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const to: Bucket = event.key === 'ArrowDown' ? primaryBucket(mode) : 'top';
+      setBuckets((current) => ({ ...current, [hoveredId]: to }));
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [pending, hoveredId]);
 
   // Dès qu'un menu ou un panneau d'inspection est ouvert, dissiper immédiatement la preview
   useEffect(() => {
@@ -318,6 +360,9 @@ export function LookModal(): React.ReactElement | null {
   if (!pending) return null;
 
   const offered = bucketDefs(t).filter((b) => !b.beforeGameOnly || started === false);
+  const quick = quickBuckets(pending.mode);
+  const primary = primaryBucket(pending.mode);
+  const isLibraryChoice = pending.mode === 'SCRY' || pending.mode === 'SURVEIL' || pending.mode === 'PEEK';
 
   const assign = (ids: Iterable<string>, bucket: Bucket): void => {
     setBuckets((current) => {
@@ -420,9 +465,6 @@ export function LookModal(): React.ReactElement | null {
         <header className="flex flex-col gap-2.5 border-b border-white/10 bg-slate-900/60 px-5 py-3.5 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/20 text-sky-300 text-base">
-                {isReveal ? '✨' : isSearch ? '🔍' : '👁️'}
-              </span>
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-base font-bold text-slate-100 tracking-tight">
@@ -430,14 +472,28 @@ export function LookModal(): React.ReactElement | null {
                       ? t('consult.titleReveal', { count: cards.length })
                       : isSearch
                         ? t('consult.titleSearch')
-                        : t('consult.titleLook', { count: cards.length })}
+                        : pending.mode === 'SCRY'
+                          ? t('consult.titleScry', { count: cards.length })
+                          : pending.mode === 'SURVEIL'
+                            ? t('consult.titleSurveil', { count: cards.length })
+                            : pending.mode === 'PEEK'
+                              ? t('consult.titlePeek', { count: cards.length })
+                              : t('consult.titleLook', { count: cards.length })}
                   </h2>
                   <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs font-semibold text-slate-300">
                     {t('card.count', { count: cards.length })}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  {isReveal ? t('consult.subtitleReveal') : t('consult.subtitleLook')}
+                  {isReveal
+                    ? t('consult.subtitleReveal')
+                    : pending.mode === 'SCRY'
+                      ? t('consult.subtitleScry')
+                      : pending.mode === 'SURVEIL'
+                        ? t('consult.subtitleSurveil')
+                        : pending.mode === 'PEEK'
+                          ? t('consult.subtitlePeek')
+                          : t('consult.subtitleLook')}
                 </p>
               </div>
             </div>
@@ -656,6 +712,9 @@ export function LookModal(): React.ReactElement | null {
                   menuOpen={activeMenuCardId === card.id}
                   hasAnyMenuOpen={activeMenuCardId !== null || inspectedCardId !== null}
                   offered={offered}
+                  quick={quick}
+                  primary={primary}
+                  onHover={(on) => setHoveredId((curr) => (on ? card.id : curr === card.id ? null : curr))}
                   onAssign={(b) => assign([card.id], b)}
                   onCloseMenu={() => {
                     hoverPreview(null);
@@ -847,40 +906,60 @@ export function LookModal(): React.ReactElement | null {
             <span className="text-slate-400 font-medium mr-1">{t('consult.summary')}</span>
             {handCount > 0 && (
               <span className="rounded-full bg-sky-950/90 text-sky-200 border border-sky-600/50 px-2.5 py-0.5 font-semibold">
-                🖐️ {t('consult.sumHand', { count: handCount })}
+                {t('consult.sumHand', { count: handCount })}
               </span>
             )}
             {bfCount > 0 && (
               <span className="rounded-full bg-emerald-950/90 text-emerald-200 border border-emerald-600/50 px-2.5 py-0.5 font-semibold">
-                ⚔️ {t('consult.sumBattlefield', { count: bfCount })}
+                {t('consult.sumBattlefield', { count: bfCount })}
               </span>
             )}
             {gyCount > 0 && (
               <span className="rounded-full bg-rose-950/90 text-rose-200 border border-rose-600/50 px-2.5 py-0.5 font-semibold">
-                🪦 {t('consult.sumGraveyard', { count: gyCount })}
+                {t('consult.sumGraveyard', { count: gyCount })}
               </span>
             )}
             {exCount > 0 && (
               <span className="rounded-full bg-purple-950/90 text-purple-200 border border-purple-600/50 px-2.5 py-0.5 font-semibold">
-                🌌 {t('consult.sumExile', { count: exCount })}
+                {t('consult.sumExile', { count: exCount })}
               </span>
             )}
             {botCount > 0 && (
               <span className="rounded-full bg-amber-950/90 text-amber-200 border border-amber-600/50 px-2.5 py-0.5 font-semibold">
-                ⬇️ {t('consult.sumBottom', { count: botCount })}
+                {t('consult.sumBottom', { count: botCount })}
               </span>
             )}
             {sbCount > 0 && (
               <span className="rounded-full bg-indigo-950/90 text-indigo-200 border border-indigo-600/50 px-2.5 py-0.5 font-semibold">
-                📦 {t('consult.sumSideboard', { count: sbCount })}
+                {t('consult.sumSideboard', { count: sbCount })}
               </span>
             )}
             <span className="rounded-full bg-slate-800 text-slate-400 px-2 py-0.5">
-              📚 {t('consult.sumDeck', { count: topCount })}
+              {t('consult.sumDeck', { count: topCount })}
             </span>
           </div>
 
           <div className="flex items-center gap-2.5 ml-auto">
+            {/* Un scry de trois où tout part dessous : un clic, pas trois. */}
+            {isLibraryChoice && cards.length > 1 && (
+              <div className="mr-2 flex items-center gap-1.5" data-test="look-bulk">
+                <button
+                  className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                  onClick={() => assign(cards.map((c) => c.id), 'top')}
+                  type="button"
+                >
+                  {t('consult.allTop')}
+                </button>
+                <button
+                  className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                  data-test="look-all-primary"
+                  onClick={() => assign(cards.map((c) => c.id), primary)}
+                  type="button"
+                >
+                  {primary === 'graveyard' ? t('consult.allGraveyard') : t('consult.allBottom')}
+                </button>
+              </div>
+            )}
             <button
               className="rounded-lg border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-slate-100 transition-all"
               onClick={() => resolve(false)}
@@ -904,8 +983,7 @@ export function LookModal(): React.ReactElement | null {
                   onClick={() => resolve(true)}
                   type="button"
                 >
-                  <span>🔀</span>
-                  <span>{t('consult.submitShuffle')}</span>
+                                    <span>{t('consult.submitShuffle')}</span>
                 </button>
               </>
             ) : (
@@ -934,6 +1012,9 @@ function LookCardItem({
   menuOpen,
   hasAnyMenuOpen,
   offered,
+  quick,
+  primary,
+  onHover,
   onPick,
   onAssign,
   onInspect,
@@ -943,6 +1024,9 @@ function LookCardItem({
 }: {
   card: PublicCardView;
   offered: BucketDef[];
+  quick: Bucket[];
+  primary: Bucket;
+  onHover: (on: boolean) => void;
   bucket: Bucket;
   scale: number;
   picked: boolean;
@@ -1011,7 +1095,6 @@ function LookCardItem({
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${bucketDef.badgeBg}`}
           >
-            <span>{bucketDef.icon}</span>
             <span>{bucketDef.shortLabel}</span>
           </span>
           <button
@@ -1034,15 +1117,20 @@ function LookCardItem({
         onClick={(e) => onPick(e.ctrlKey || e.metaKey || e.shiftKey)}
         onDoubleClick={(e) => {
           e.stopPropagation();
-          // Raccourci joueur : double-clic bascule directement en main (tuteur habituel)
-          onAssign(bucket === 'hand' ? 'top' : 'hand');
+          // Le geste principal du mode : en main pour une fouille, dessous pour
+          // un scry, au cimetière pour un surveil. Un second double-clic annule.
+          onAssign(bucket === primary ? 'top' : primary);
         }}
         onMouseEnter={() => {
+          onHover(true);
           if (!menuOpen && !hasAnyMenuOpen) {
             hoverPreview(card.scryfallId ?? null);
           }
         }}
-        onMouseLeave={() => hoverPreview(null)}
+        onMouseLeave={() => {
+          onHover(false);
+          hoverPreview(null);
+        }}
         title={t('consult.cardTitleHint', { name })}
       >
         <CardSprite card={card} scale={scale} />
@@ -1087,38 +1175,25 @@ function LookCardItem({
         )}
       </div>
 
-      {/* Barre d'actions rapides sous la carte */}
+      {/* Barre d'actions rapides sous la carte : les destinations du mode (`quickBuckets`). */}
       <div className="mt-1.5 flex items-center justify-between gap-1 pt-1 border-t border-slate-800/80">
-        <button
-          className={`flex-1 rounded py-0.5 text-[10px] font-bold transition-all ${
-            bucket === 'hand'
-              ? 'bg-sky-600 text-white'
-              : 'bg-slate-800/80 text-slate-300 hover:bg-sky-950/80 hover:text-sky-200'
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAssign(bucket === 'hand' ? 'top' : 'hand');
-          }}
-          title={t('consult.quickHand')}
-          type="button"
-        >
-          🖐️ {t('consult.bucketHandShort')}
-        </button>
-        <button
-          className={`flex-1 rounded py-0.5 text-[10px] font-bold transition-all ${
-            bucket === 'battlefield'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-slate-800/80 text-slate-300 hover:bg-emerald-950/80 hover:text-emerald-200'
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAssign(bucket === 'battlefield' ? 'top' : 'battlefield');
-          }}
-          title={t('consult.quickBattlefield')}
-          type="button"
-        >
-          ⚔️ {t('consult.bucketBattlefieldShort')}
-        </button>
+        {quick.map((key) => (
+          <button
+            key={key}
+            aria-pressed={bucket === key}
+            className={`flex-1 rounded py-1 text-[11px] font-bold transition-colors ${
+              bucket === key ? QUICK_STYLE[key] : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white'
+            }`}
+            data-test={`look-quick-${key}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAssign(key === 'top' || bucket !== key ? key : 'top');
+            }}
+            type="button"
+          >
+            {quickLabel(t, key)}
+          </button>
+        ))}
         <button
           ref={btnRef}
           className={`rounded px-1.5 py-0.5 text-[10px] transition-all ${

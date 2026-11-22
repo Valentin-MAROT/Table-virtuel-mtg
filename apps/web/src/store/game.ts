@@ -63,6 +63,13 @@ interface GameStore {
     identities: Map<SeatId, TreacheryIdentityView>;
   } | null;
   turn: Snapshot['turn'];
+  /**
+   * Un tour vient de commencer **sous nos yeux** : posé par `GAME_STARTED` et
+   * `TURN_ENDED`, jamais par un instantané. Rejoindre une partie en cours ou se
+   * resynchroniser ne doit pas annoncer un tour que personne n'a vu passer
+   * (`TurnAnnounce`). `id` change à chaque annonce, même pour un même siège.
+   */
+  turnCue: { id: number; seat: SeatId; turnNumber: number } | null;
   seats: SeatSummary[];
   cards: Map<ObjectId, CardView>;
   zoneCounts: Map<string, number>;
@@ -259,7 +266,7 @@ function dropPrediction(cardId: ObjectId): void {
 function blankRoomState(): Pick<
   GameStore,
   | 'status' | 'statusDetail' | 'seq' | 'mySeat' | 'roomCode' | 'room' | 'gameOver' | 'treachery'
-  | 'turn' | 'seats' | 'cards' | 'zoneCounts' | 'labels' | 'log' | 'cursors' | 'chat'
+  | 'turn' | 'turnCue' | 'seats' | 'cards' | 'zoneCounts' | 'labels' | 'log' | 'cursors' | 'chat'
   | 'pendingLook' | 'publicReveal' | 'looksInProgress' | 'handsRevealed' | 'topReveals' | 'lastReject' | 'selection'
   | 'hoveredCardId' | 'hoveredPreview' | 'drag' | 'predicted' | 'attachPending' | 'menu'
 > {
@@ -282,6 +289,7 @@ function blankRoomState(): Pick<
     gameOver: null,
     treachery: null,
     turn: { activeSeat: null, turnNumber: 0, phase: 'MAIN1' },
+    turnCue: null,
     seats: [],
     cards: new Map(),
     zoneCounts: new Map(),
@@ -328,6 +336,7 @@ export const useGame = create<GameStore>((set, get) => ({
   gameOver: null,
   treachery: null,
   turn: { activeSeat: null, turnNumber: 0, phase: 'MAIN1' },
+  turnCue: null,
   seats: [],
   cards: new Map(),
   zoneCounts: new Map(),
@@ -1016,7 +1025,10 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
       return;
 
     case 'TURN_ENDED':
-      set({ turn: { activeSeat: event.nextSeat, turnNumber: event.turnNumber, phase: 'UNTAP' } });
+      set({
+        turn: { activeSeat: event.nextSeat, turnNumber: event.turnNumber, phase: 'UNTAP' },
+        turnCue: { id: (get().turnCue?.id ?? 0) + 1, seat: event.nextSeat, turnNumber: event.turnNumber },
+      });
       return;
 
     case 'PHASE_CHANGED':
@@ -1027,6 +1039,7 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
       set({
         room: get().room ? { ...get().room!, status: 'PLAYING' } : null,
         turn: { activeSeat: event.startingSeat, turnNumber: 1, phase: 'UNTAP' },
+        turnCue: { id: (get().turnCue?.id ?? 0) + 1, seat: event.startingSeat, turnNumber: 1 },
       });
       return;
 

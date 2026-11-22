@@ -24,6 +24,30 @@ import { useGame } from '../store/game.js';
 import { useT } from '../lib/i18n/index.js';
 import { drawsThisTurn, startOfTurnIntents } from '../lib/turn.js';
 import { IdentityButton } from './TreacheryPanel.js';
+import { setTurnBell, useTurnBell } from '../lib/turnBell.js';
+
+/** La cloche du tour (`TurnAnnounce`) se coupe ici, d'un clic. */
+function BellToggle(): React.ReactElement {
+  const t = useT();
+  const on = useTurnBell();
+  return (
+    <button
+      type="button"
+      data-test="turn-bell"
+      aria-pressed={on}
+      aria-label={on ? t('turn.bellOn') : t('turn.bellOff')}
+      title={on ? t('turn.bellOn') : t('turn.bellOff')}
+      onClick={() => setTurnBell(!on)}
+      className={`rounded p-0.5 transition-colors ${on ? 'text-sky-300 hover:text-white' : 'text-slate-500 hover:text-slate-300'}`}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        {!on && <path d="M3 3l18 18" />}
+      </svg>
+    </button>
+  );
+}
 
 export function TurnOrder(): React.ReactElement | null {
   const t = useT();
@@ -55,8 +79,11 @@ export function TurnOrder(): React.ReactElement | null {
     >
       <div className="mb-1.5 flex items-center justify-between text-xs">
         <span className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">Ordre du tour</span>
-        <span className="tabular-nums font-mono font-bold text-sky-400 bg-sky-950/60 border border-sky-800/60 px-1.5 py-0.5 rounded text-[11px]">
-          Tour {turnNumber}
+        <span className="flex items-center gap-1.5">
+          <BellToggle />
+          <span className="tabular-nums font-mono font-bold text-sky-400 bg-sky-950/60 border border-sky-800/60 px-1.5 py-0.5 rounded text-[11px]">
+            Tour {turnNumber}
+          </span>
         </span>
       </div>
       <ol className="space-y-1">

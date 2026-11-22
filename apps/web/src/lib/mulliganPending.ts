@@ -43,6 +43,9 @@ export function markMulliganDone(taken: number): void {
   const k = key();
   if (!k) return;
   memory.set(k, taken);
+  // Finir un mulligan, c'est garder la main qu'on a : la question d'ouverture
+  // ne se repose pas.
+  markOpeningKept();
   try {
     window.sessionStorage.setItem(k, String(taken));
   } catch {
@@ -74,4 +77,77 @@ export function useMulliganPending(): { taken: number; toBottom: number } | null
   if (!playing || taken <= done) return null;
   const toBottom = mulliganBottomCount(counter);
   return toBottom > 0 ? { taken, toBottom } : null;
+}
+
+/*
+ * — La main de départ ————————————————————————————————————————————
+ *
+ * Au lancement, rien ne proposait le mulligan : il fallait le trouver dans le
+ * menu de la bibliothèque. `OpeningHandBar` pose la question d'emblée —
+ * garder ou repartir — tant que le joueur n'a pas tranché.
+ *
+ * « Tranché » se retient par **partie** : la clé porte le `seq` de la ligne
+ * « La partie commence » du journal, si bien qu'une partie relancée à la même
+ * table repose la question. Garder, ou finir un mulligan (`markMulliganDone`),
+ * vaut réponse.
+ */
+const keptMemory = new Set<string>();
+
+function gameKey(): string | null {
+  const { room, mySeat, log } = useGame.getState();
+  if (!room || !mySeat) return null;
+  const start = [...log].reverse().find((e) => e.text.startsWith('La partie commence'));
+  return `main-gardee:${room.code}:${mySeat}:${start?.seq ?? 0}`;
+}
+
+function keptFor(): boolean {
+  const k = gameKey();
+  if (!k) return false;
+  if (keptMemory.has(k)) return true;
+  try {
+    return window.sessionStorage.getItem(k) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markOpeningKept(): void {
+  const k = gameKey();
+  if (!k) return;
+  keptMemory.add(k);
+  try {
+    window.sessionStorage.setItem(k, '1');
+  } catch {
+    /* stockage indisponible */
+  }
+  for (const l of listeners) l();
+}
+
+/**
+ * La main de départ attend-elle une décision ? Seulement au premier tour,
+ * tant que le joueur n'a rien posé : rejoindre une partie avancée, ou avoir
+ * déjà joué un terrain, n'est pas le moment de proposer un mulligan.
+ */
+export function useOpeningPending(): boolean {
+  const kept = useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => void listeners.delete(l);
+    },
+    keptFor,
+  );
+  const pending = useMulliganPending();
+  const opening = useGame((s) => {
+    if (s.room?.status !== 'PLAYING' || !s.mySeat || s.turn.turnNumber > 1) return false;
+    const me = s.seats.find((x) => x.id === s.mySeat);
+    if (!me || me.conceded) return false;
+    let hand = 0;
+    for (const c of s.cards.values()) {
+      if (c.zone.seat !== s.mySeat) continue;
+      if (c.zone.kind === 'BATTLEFIELD') return false;
+      if (c.zone.kind === 'HAND') hand += 1;
+    }
+    return hand > 0;
+  });
+  return opening && !kept && !pending;
 }

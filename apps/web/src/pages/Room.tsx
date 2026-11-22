@@ -9,6 +9,7 @@ import { ActionLog } from '../components/ActionLog.js';
 import { PlayerPanel } from '../components/PlayerPanel.js';
 import { DiceBar, Toolbar } from '../components/Toolbar.js';
 import { LookModal } from '../components/LookModal.js';
+import { TurnAnnounce } from '../components/TurnAnnounce.js';
 import { PublicRevealModal } from '../components/PublicRevealModal.js';
 import { TokenSearch } from '../components/TokenSearch.js';
 import { CountersPanel } from '../components/CountersPanel.js';
@@ -34,7 +35,7 @@ import { PrintingPicker } from '../components/PrintingPicker.js';
 import { ManaPool } from '../components/ManaPool.js';
 import { hasSeatToken } from '../net/socket.js';
 import { landingSpots } from '../lib/landing.js';
-import { MulliganBar } from '../components/MulliganBar.js';
+import { MulliganBar, OpeningHandBar } from '../components/MulliganBar.js';
 import { StateWarnings } from '../components/StateWarnings.js';
 import { useMulliganPending } from '../lib/mulliganPending.js';
 import { AccountModal } from '../components/AccountModal.js';
@@ -349,6 +350,7 @@ export function RoomPage(): React.ReactElement {
             </button>
           </div>
         )}
+        <OpeningHandBar />
         <MulliganBar />
         <Hand
           onCardDoubleClick={(card) =>
@@ -373,6 +375,7 @@ export function RoomPage(): React.ReactElement {
       <CardPreview />
       <DragLayer />
       <LookModal />
+      <TurnAnnounce />
       <PublicRevealModal />
       <ZonePanel onOpenChange={setZonePanel} />
       {menu?.kind === 'CARD' && (
