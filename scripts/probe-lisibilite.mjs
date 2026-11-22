@@ -162,6 +162,8 @@ try {
   }
   await shot(bob, '09-bob-fin');
   await shot(alice, '10-alice-fin');
+  await alice.getByRole('button', { name: 'Voir toute la table' }).click();
+  await shot(alice, '11-alice-toute-la-table');
 } catch (e) {
   console.log('ERREUR', String(e).slice(0, 400));
 } finally {

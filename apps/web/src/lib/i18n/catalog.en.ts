@@ -887,6 +887,7 @@ export const en = defineTranslation({
   'reveal.altCard': 'Revealed card',
   'reveal.hint':
     'Hover a card to enlarge it. The player is currently choosing the destinations.',
+  'reveal.done': 'Reveal finished — this banner closes in a moment.',
   'reveal.reopen': {
     one: '{who} reveals {count} card',
     other: '{who} reveals {count} cards',

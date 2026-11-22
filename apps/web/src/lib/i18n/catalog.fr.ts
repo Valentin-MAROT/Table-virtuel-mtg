@@ -976,6 +976,7 @@ export const fr = {
   'reveal.altCard': 'Carte révélée',
   'reveal.hint':
     "Survolez une carte pour l'agrandir. Le joueur sélectionne actuellement les destinations.",
+  'reveal.done': 'Révélation terminée — le bandeau se ferme dans un instant.',
   'reveal.reopen': {
     one: '{who} révèle {count} carte',
     other: '{who} révèle {count} cartes',

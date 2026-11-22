@@ -63,6 +63,8 @@ import {
 } from '../lib/previewPlacement.js';
 
 const MARGIN = 16;
+/** Écart entre les deux faces d'une carte double face, en pixels d'écran. */
+const FACE_GAP = 8;
 
 /**
  * Taille de l'aperçu, déduite de la fenêtre.
@@ -137,6 +139,16 @@ export function CardPreview(): React.ReactElement | null {
   const shown = !dragging && !!scryfallId && !!source;
 
   const size = previewSize(viewport.width, viewport.height);
+  /*
+   * Une carte double face montre **ses deux faces**, côte à côte.
+   *
+   * En main, on ne pouvait voir que le recto : retourner une carte de sa main
+   * n'est pas un geste de partie, et l'aperçu ne captant pas le pointeur, il ne
+   * pouvait rien offrir à cliquer. Or c'est en main qu'on a besoin du verso —
+   * pour savoir ce que deviendra la carte avant de la jouer. Sans geste de
+   * plus : survoler suffit, partout où l'identité est connue.
+   */
+  const twoFaces = !!scryfallId && isDoubleFaced(cardMeta(scryfallId));
 
   /*
    * Le coin se choisit après le rendu, sur le DOM réel : le rectangle de la
@@ -180,7 +192,10 @@ export function CardPreview(): React.ReactElement | null {
     imageHeight,
   } = previewBox({
     imageHeight: size.height,
-    ratio: CARD_WIDTH / CARD_HEIGHT,
+    // Deux faces : deux cartes et l'écart qui les sépare (`FACE_GAP`).
+    ratio: twoFaces
+      ? (CARD_WIDTH / CARD_HEIGHT) * 2 + FACE_GAP / size.height
+      : CARD_WIDTH / CARD_HEIGHT,
     bandsHeight,
     viewport,
     margin: MARGIN,
@@ -239,6 +254,17 @@ export function CardPreview(): React.ReactElement | null {
   });
   const imageSrc =
     resolved.url ?? scryfallImage(scryfallId, 'large', faceIndex === 0 ? 'front' : 'back');
+  const otherFace = faceIndex === 0 ? 1 : 0;
+  const otherSrc = twoFaces
+    ? (resolveCardImage({
+        card: meta ?? { scryfallId },
+        localized,
+        language,
+        face: otherFace,
+        allowSubstitute: forceLocalizedPrinting,
+      }).url ?? scryfallImage(scryfallId, 'large', otherFace === 0 ? 'front' : 'back'))
+    : null;
+  const otherName = twoFaces ? (localizedCardName(localized, meta?.name, otherFace) ?? '') : '';
   /*
    * Le nom affiché — et l'`alt` de l'illustration, qui est le même.
    *
@@ -295,9 +321,10 @@ export function CardPreview(): React.ReactElement | null {
     >
       {/* Hauteur imposée au cadre : c'est elle qui rend la géométrie du panneau
           indépendante du chargement de l'image. */}
+      <div className="flex" style={{ gap: FACE_GAP }}>
       <div
         className="relative overflow-hidden rounded-[14px] bg-slate-950 shadow-2xl shadow-black/90 ring-1 ring-white/20 transition-all"
-        style={{ height: imageHeight }}
+        style={{ height: imageHeight, width: twoFaces ? Math.round(imageHeight * (CARD_WIDTH / CARD_HEIGHT)) : undefined }}
       >
         {/* `relative` sur le cadre, pour que le repère se pose sur l'image et
             non sur la fenêtre : l'aperçu lui-même est `fixed`. */}
@@ -321,6 +348,21 @@ export function CardPreview(): React.ReactElement | null {
           /* CDN Scryfall, directement : rien n'est hébergé ni proxifié chez nous. */
           src={imageSrc}
         />
+      </div>
+      {otherSrc && (
+        <div
+          className="relative overflow-hidden rounded-[14px] bg-slate-950 shadow-2xl shadow-black/90 ring-1 ring-white/20"
+          data-test="card-preview-other-face"
+          style={{ height: imageHeight, width: Math.round(imageHeight * (CARD_WIDTH / CARD_HEIGHT)) }}
+        >
+          <img
+            alt={otherName}
+            className="h-full w-full object-cover rounded-[14px]"
+            draggable={false}
+            src={otherSrc}
+          />
+        </div>
+      )}
       </div>
       {/*
         Tout ce qui est peint sous l'illustration, dans un seul cadre mesuré.

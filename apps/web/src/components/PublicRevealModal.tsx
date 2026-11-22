@@ -13,6 +13,9 @@ import { useGame } from '../store/game.js';
  * complète des cartes révélées. Ce composant leur permet de voir ces cartes en
  * direct sans bloquer leur interaction avec le reste de la table.
  */
+/** Durée d'affichage d'une révélation après sa validation. */
+const LINGER_MS = 8000;
+
 export function PublicRevealModal(): React.ReactElement | null {
   // Les résolutions arrivent par lots, après le premier rendu : sans cet
   // abonnement, une carte révélée resterait en anglais jusqu'au prochain rendu
@@ -49,6 +52,23 @@ export function PublicRevealModal(): React.ReactElement | null {
     }
   }, [publicReveal, mySeat, hoverPreview]);
 
+  /*
+   * Une révélation validée reste affichée `LINGER_MS`, puis se retire seule.
+   * Le joueur qui révèle valide souvent d'un clic : effacer le bandeau à cet
+   * instant, c'était le retirer avant que quiconque l'ait lu. Une nouvelle
+   * révélation entre-temps a un autre `lookId` et n'est pas touchée.
+   */
+  const resolvedLookId = publicReveal?.resolved ? publicReveal.lookId : null;
+  useEffect(() => {
+    if (!resolvedLookId) return;
+    const timer = window.setTimeout(() => {
+      if (useGame.getState().publicReveal?.lookId !== resolvedLookId) return;
+      hoverPreview(null);
+      useGame.setState({ publicReveal: null });
+    }, LINGER_MS);
+    return () => window.clearTimeout(timer);
+  }, [resolvedLookId, hoverPreview]);
+
   // Si pas de révélation en cours ou si c'est moi qui révèle (géré par LookModal)
   if (!publicReveal || publicReveal.seat === mySeat) {
     return null;
@@ -68,7 +88,6 @@ export function PublicRevealModal(): React.ReactElement | null {
           onClick={() => setMinimized(false)}
           type="button"
         >
-          <span className="animate-pulse">✨</span>
           <span>{t('reveal.reopen', { who: seatName, count })}</span>
           <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] text-sky-300">
             {t('common.expand')}
@@ -86,12 +105,7 @@ export function PublicRevealModal(): React.ReactElement | null {
       <div className="rounded-2xl border border-sky-500/30 bg-slate-950/95 p-4 shadow-2xl backdrop-blur-xl ring-1 ring-white/10">
         <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
           <div className="flex items-center gap-3">
-            <span
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold shadow"
-              style={{ backgroundColor: `${seatColor}25`, color: seatColor }}
-            >
-              ✨
-            </span>
+            <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black/60" style={{ backgroundColor: seatColor }} />
             <div>
               <h2 className="flex items-center gap-2 text-sm font-bold text-slate-100">
                 <span>{seatName}</span>
@@ -99,7 +113,9 @@ export function PublicRevealModal(): React.ReactElement | null {
                   {t('reveal.headline', { count })}
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-400">{t('reveal.hint')}</p>
+              <p className="text-[11px] text-slate-400">
+                {publicReveal.resolved ? t('reveal.done') : t('reveal.hint')}
+              </p>
             </div>
           </div>
           <button

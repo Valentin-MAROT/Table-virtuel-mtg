@@ -729,7 +729,11 @@ export const Table = memo(function Table({ readOnly = false }: { readOnly?: bool
         return;
       }
       framedFor.current = mySeat;
-      focusOnMe();
+      // Dès qu'on n'est plus seul, l'ouverture montre toute la table : un
+      // adversaire hors du cadre, c'est un plateau qu'on ne lit pas (voir
+      // `framedAtStart`). Seul, on cadre son propre panneau.
+      if (ordered.length >= 2) recenter();
+      else focusOnMe();
     };
     tryFrame();
     return () => {
@@ -737,6 +741,31 @@ export const Table = memo(function Table({ readOnly = false }: { readOnly?: bool
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mySeat, ordered.length]);
+
+  /**
+   * Au lancement de la partie, la table entière.
+   *
+   * Le cadrage d'ouverture se pose à l'arrivée, souvent seul dans le salon ;
+   * la compensation ci-dessous garde ensuite notre panneau au même pixel
+   * quand les autres s'assoient. Résultat : la partie commençait cadrée sur
+   * notre seul panneau, et le plateau adverse restait au-dessus, hors de
+   * l'écran — à 1440 × 900, une bande de 30 px. On ne voyait ni ses
+   * créatures ni ses terrains sans déplacer la caméra.
+   *
+   * Deux panneaux empilés font 1368 px de monde ; il n'y a pas d'échelle qui
+   * les montre en grand dans 600 px d'écran libre. On choisit donc de **tout
+   * voir** au lancement, une fois : les cartes se lisent à l'aperçu au
+   * survol, et « Recentrer sur moi » ramène son propre plateau en grand.
+   */
+  const roomStatus = useGame((s) => s.room?.status);
+  const lastStatus = useRef(roomStatus);
+  useEffect(() => {
+    const before = lastStatus.current;
+    lastStatus.current = roomStatus;
+    if (roomStatus !== 'PLAYING' || before === 'PLAYING' || before === undefined) return;
+    if (ordered.length >= 2) recenter();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomStatus]);
 
   /**
    * Suivre son propre siège quand la disposition change sous la caméra.

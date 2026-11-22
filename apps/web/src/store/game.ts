@@ -79,7 +79,12 @@ interface GameStore {
   chat: ChatBubble[];
   pendingLook: { lookId: string; mode: LookMode; cards: PublicCardView[] } | null;
   /** Révélation publique en cours (pour spectateurs / adversaires). */
-  publicReveal: { seat: SeatId; lookId: string; cards: PublicCardView[] } | null;
+  /**
+   * `resolved` : le joueur a validé. Le bandeau reste alors affiché quelques
+   * secondes (`PublicRevealModal`) — sans quoi une révélation validée d'un
+   * clic n'était vue de personne.
+   */
+  publicReveal: { seat: SeatId; lookId: string; cards: PublicCardView[]; resolved?: boolean } | null;
   /**
    * Consultations en cours, par siège. `LOOK_STARTED` est public par
    * construction (§6.4) : une table doit savoir qu'un joueur regarde sa
@@ -827,8 +832,9 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
         set({ pendingLook: null });
       }
       if (get().publicReveal?.lookId === event.lookId) {
-        get().hoverPreview(null);
-        set({ publicReveal: null });
+        // Pas d'effacement immédiat : les autres doivent avoir le temps de voir
+        // ce qui a été révélé. Le bandeau se retire seul ensuite.
+        set({ publicReveal: { ...get().publicReveal!, resolved: true } });
       }
       const looks = new Map(get().looksInProgress);
       looks.delete(event.seat);
