@@ -23,7 +23,7 @@
  * perdre un marqueur.
  */
 import { create } from 'zustand';
-import type { CardView, Event, PublicCardView, SeatId, ZoneKind } from '@mtg/shared';
+import type { CardView, Event, PublicCardView, SeatId, ZoneKind, ZoneRef } from '@mtg/shared';
 
 /** Durée d'un halo, en millisecondes. Doit suivre l'animation `cue-halo` (index.css). */
 export const HALO_MS = 4500;
@@ -51,11 +51,11 @@ interface CueState {
 export const useCues = create<CueState>(() => ({ played: [], touched: new Map() }));
 
 let counter = 0;
-const timers = new Map<string, number>();
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** Remet à zéro (changement de table). */
 export function resetCues(): void {
-  for (const t of timers.values()) window.clearTimeout(t);
+  for (const t of timers.values()) globalThis.clearTimeout(t);
   timers.clear();
   useCues.setState({ played: [], touched: new Map() });
 }
@@ -67,11 +67,11 @@ function touch(ids: readonly string[], seat: SeatId): void {
     counter += 1;
     touched.set(id, { seat, n: counter });
     const previous = timers.get(id);
-    if (previous) window.clearTimeout(previous);
+    if (previous) globalThis.clearTimeout(previous);
     const n = counter;
     timers.set(
       id,
-      window.setTimeout(() => {
+      globalThis.setTimeout(() => {
         timers.delete(id);
         const current = useCues.getState().touched;
         if (current.get(id)?.n !== n) return;
@@ -89,7 +89,7 @@ function play(cue: Omit<PlayedCue, 'id'>): void {
   const id = counter;
   const played = [...useCues.getState().played, { ...cue, id }].slice(-PLAYED_MAX);
   useCues.setState({ played });
-  window.setTimeout(() => {
+  globalThis.setTimeout(() => {
     useCues.setState({ played: useCues.getState().played.filter((p) => p.id !== id) });
   }, PLAYED_MS);
 }
@@ -117,6 +117,15 @@ function verbFor(from: ZoneKind, to: ZoneKind): PlayedVerb | null {
   if (from === 'HAND' && to === 'GRAVEYARD') return 'graveyard';
   if (from === 'HAND' && to === 'EXILE') return 'exile';
   return null;
+}
+
+/**
+ * Une carte **arrive** sur le champ de bataille. Déplacer ou réaligner ce qui
+ * y est déjà (terrains rangés, zone republiée dans son nouvel ordre) n'est pas
+ * une arrivée, et ne brille pas.
+ */
+export function entersBattlefield(from: ZoneRef, to: ZoneRef): boolean {
+  return to.kind === 'BATTLEFIELD' && !(from.kind === 'BATTLEFIELD' && from.seat === to.seat);
 }
 
 /** Ce qui, dans une mise à jour de carte, mérite le halo. */
@@ -149,11 +158,15 @@ export function noteLiveEvent(
     case 'CARD_MOVED': {
       const verb = verbFor(event.from.kind, event.to.kind);
       if (verb && isPublic(event.card)) play({ seat: actor, card: event.card, verb, from: event.from.kind });
-      if (event.to.kind === 'BATTLEFIELD') touch([event.card.id], actor);
+      if (entersBattlefield(event.from, event.to)) touch([event.card.id], actor);
       return;
     }
     case 'CARDS_MOVED':
-      if (event.to.kind === 'BATTLEFIELD') touch(event.cards.map((c) => c.id), actor);
+      // Un `CARDS_MOVED` d'une zone vers elle-même n'est pas un geste : c'est
+      // le serveur qui republie l'ordre de toute la zone après un rangement.
+      // Le prendre pour une arrivée allumait chaque permanent du joueur à
+      // chaque carte jouée.
+      if (entersBattlefield(event.from, event.to)) touch(event.cards.map((c) => c.id), actor);
       return;
     case 'CARD_UPDATED':
       if (changedVisibly(before.get(event.card.id), event.card)) touch([event.card.id], actor);
