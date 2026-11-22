@@ -6,6 +6,7 @@
  * réparation à l'aveugle.
  */
 import { create } from 'zustand';
+import { noteLiveEvent, resetCues } from '../lib/actionCues.js';
 import type {
   CardView,
   CursorState,
@@ -384,12 +385,14 @@ export const useGame = create<GameStore>((set, get) => ({
     // table au lieu de demander le nom et le deck. On repartait « assis » à
     // une table où l'on n'avait jamais pris place, avec le panneau, le journal
     // et les cartes de l'ancienne.
+    resetCues();
     set({ ...blankRoomState(), socket, roomCode: code });
     socket.connect();
   },
 
   disconnect() {
     get().socket?.close();
+    resetCues();
     set({ ...blankRoomState(), socket: null });
   },
 
@@ -567,6 +570,8 @@ export function handleMessage(message: ServerMessage, set: Setter, get: Getter):
         }
         return;
       }
+      // Avant l'application : l'indice compare l'état d'avant à celui d'après.
+      noteLiveEvent(message.event, message.actor, get().mySeat, get().cards);
       applyEvent(message.event, set, get);
       set({ seq: message.seq });
       if (message.log) {

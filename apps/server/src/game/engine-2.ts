@@ -345,7 +345,12 @@ export function applyIntentPart2(
         ? `${who} a révélé les ${ids.length} carte${ids.length > 1 ? 's' : ''} du dessus de sa ${zoneLabel(intent.zone)} : ${revealNames.join(', ')}`
         : intent.mode === 'SEARCH'
           ? `${who} fouille sa ${zoneLabel(intent.zone)}`
-          : `${who} fait un ${intent.mode.toLowerCase()} de ${ids.length}`;
+          : // Les mots de la carte, en français : « Regard 2 », « Surveillance 2 ».
+            intent.mode === 'SCRY'
+            ? `${who} fait un regard de ${ids.length}`
+            : intent.mode === 'SURVEIL'
+              ? `${who} fait une surveillance de ${ids.length}`
+              : `${who} regarde les ${ids.length} carte${ids.length > 1 ? 's' : ''} du dessus de sa ${zoneLabel(intent.zone)}`;
 
       return {
         emissions: [
@@ -518,13 +523,17 @@ export function applyIntentPart2(
           : look.mode === 'REVEAL'
             ? 'sa révélation'
             : look.mode === 'SCRY'
-              ? 'son scry'
+              ? 'son regard'
               : look.mode === 'SURVEIL'
-                ? 'son surveil'
+                ? 'sa surveillance'
                 : 'sa consultation';
 
       const countsPart = `${summary.toTop} dessus, ${summary.toBottom} dessous`;
-      const shufflePart = summary.shuffled ? 'bibliothèque mélangée' : 'sans mélanger';
+      // « Sans mélanger » ne dit rien pour un regard ou une surveillance, qui ne
+      // mélangent jamais : on ne l'écrit que là où la question se pose.
+      const mayShuffle = look.mode === 'SEARCH' || look.mode === 'REVEAL';
+      const shufflePart = summary.shuffled ? 'bibliothèque mélangée' : mayShuffle ? 'sans mélanger' : '';
+      const detail = shufflePart ? `${countsPart}, ${shufflePart}` : countsPart;
 
       emissions.push({
         audience: ALL,
@@ -532,8 +541,8 @@ export function applyIntentPart2(
         log: {
           text:
             fragments.length > 0
-              ? `${who} a terminé ${actionName} (${countsPart}, ${shufflePart}) — ${fragments.join(' ; ')}`
-              : `${who} a terminé ${actionName} (${countsPart}, ${shufflePart})`,
+              ? `${who} a terminé ${actionName} (${detail}) — ${fragments.join(' ; ')}`
+              : `${who} a terminé ${actionName} (${detail})`,
           cardIds: anchors,
         },
       });

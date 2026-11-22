@@ -137,3 +137,28 @@ body {
   color: #6b7280;
   font-size: 11px;
 }
+
+/*
+ * Halo d'une carte touchée par un autre joueur (`lib/actionCues.ts`) : franc
+ * à l'arrivée, il s'éteint en 4,5 s. La durée suit `HALO_MS`.
+ */
+@keyframes cue-halo {
+  0% { opacity: 0; transform: scale(1.08); }
+  8% { opacity: 1; transform: scale(1); }
+  70% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+.cue-halo {
+  animation: cue-halo 4.5s ease-out forwards;
+}
+@keyframes cue-pop {
+  0% { opacity: 0; transform: translateX(24px) scale(0.96); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+.cue-pop {
+  animation: cue-pop 0.28s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cue-halo { animation: none; opacity: 0.8; }
+  .cue-pop { animation: none; }
+}

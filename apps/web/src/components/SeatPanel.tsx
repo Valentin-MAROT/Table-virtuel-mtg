@@ -5,6 +5,7 @@ import type { CardView, SeatSummary, ZoneKind } from '@mtg/shared';
 import { useGame } from '../store/game.js';
 import { BATTLEFIELD_SCALE, CardSprite, CARD_HEIGHT, CARD_WIDTH, PILE_SCALE } from './CardSprite.js';
 import { CardBack } from './CardBack.js';
+import { CueHalo } from './CueHalo.js';
 import { DRAG_THRESHOLD, findDropTarget, zoneAttr } from '../lib/drag.js';
 import { dragJustEnded } from './DragLayer.js';
 import { useT } from '../lib/i18n/index.js';
@@ -370,6 +371,7 @@ export function SeatPanel({
                 highlighted={highlight.has(card.id)}
                 {...cardProps(card)}
               />
+              <CueHalo cardId={card.id} />
               {/* Ce permanent porte des attachements : on le dit sur lui, et le
                   survol éclaire la paire. */}
               {attachedCount.has(card.id) && (

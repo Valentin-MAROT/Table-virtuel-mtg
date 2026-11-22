@@ -133,13 +133,13 @@ describe('une ancre est publique ou n’est pas', () => {
     // par son `CARD_MOVED` : lui retirer l'ancre ferait perdre le surlignage
     // sans rien protéger. Le critère porte sur l'identifiant, pas sur l'identité.
     expect(t.room.state.objects.get(carte)!.knownTo.has('seat_1')).toBe(false);
-    const direct = journalRecu(t.b).find((l) => l.text.includes('vers champ de bataille'))!;
+    const direct = journalRecu(t.b).find((l) => l.text.includes(' joue une carte'))!;
     expect(direct.text).toContain('une carte');
     expect(direct.cardIds).toEqual([carte]);
 
     const rattrapage = t.room
       .snapshotFor('seat_1')
-      .logTail.find((e) => e.text.includes('vers champ de bataille'))!;
+      .logTail.find((e) => e.text.includes(' joue une carte'))!;
     expect(rattrapage.cardIds).toEqual(direct.cardIds);
   });
 });

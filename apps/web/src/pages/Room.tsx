@@ -10,6 +10,7 @@ import { PlayerPanel } from '../components/PlayerPanel.js';
 import { DiceBar, Toolbar } from '../components/Toolbar.js';
 import { LookModal } from '../components/LookModal.js';
 import { TurnAnnounce } from '../components/TurnAnnounce.js';
+import { PlayedCardSpotlight } from '../components/PlayedCardSpotlight.js';
 import { PublicRevealModal } from '../components/PublicRevealModal.js';
 import { TokenSearch } from '../components/TokenSearch.js';
 import { CountersPanel } from '../components/CountersPanel.js';
@@ -376,6 +377,7 @@ export function RoomPage(): React.ReactElement {
       <DragLayer />
       <LookModal />
       <TurnAnnounce />
+      <PlayedCardSpotlight />
       <PublicRevealModal />
       <ZonePanel onOpenChange={setZonePanel} />
       {menu?.kind === 'CARD' && (

@@ -927,7 +927,11 @@ function applyIntentCore(
               state,
               obj,
               from,
-              `${who} a déplacé ${shownName} de ${fromLabel} vers ${zoneLabel(obj.zone)}`,
+              // Main → champ, c'est jouer la carte : le journal le dit ainsi,
+              // plutôt que « a déplacé X de main vers champ de bataille ».
+              from.kind === 'HAND' && obj.zone.kind === 'BATTLEFIELD'
+                ? `${who} joue ${shownName}`
+                : `${who} a déplacé ${shownName} de ${fromLabel} vers ${zoneLabel(obj.zone)}`,
             ),
         // Une carte qui quitte le champ de bataille emmène ses attachements
         // dans le vide : on les détache explicitement.

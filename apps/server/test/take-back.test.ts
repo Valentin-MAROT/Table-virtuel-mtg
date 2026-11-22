@@ -77,7 +77,7 @@ describe('TAKE_BACK — la table convient d’oublier', () => {
     // lignes. Le fait reste, le nom devient la périphrase du §4.2.
     const tail = room.snapshotFor('seat_1').logTail;
     expect(tail.some((e) => e.text.includes('Carte 2 '))).toBe(false);
-    expect(tail.some((e) => e.text.includes('a déplacé une carte de main vers champ de bataille'))).toBe(true);
+    expect(tail.some((e) => e.text.includes('joue une carte'))).toBe(true);
 
     // La carte est bien en main d'Alice, sous un nom neuf, et Bob ne la connaît
     // plus — alors qu'il l'avait vue sur le champ de bataille.

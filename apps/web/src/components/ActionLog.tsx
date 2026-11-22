@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NAMED_LOG_LIMIT, type CardView, type ObjectId } from '@mtg/shared';
 import type { LogEntry } from '@mtg/shared';
-import { cardMeta, subscribeCards } from '../lib/cards.js';
+import { cardMeta, scryfallImage, subscribeCards } from '../lib/cards.js';
 import { useGame } from '../store/game.js';
 import { useT } from '../lib/i18n/index.js';
 
@@ -269,6 +269,7 @@ export function ActionLog({
           {actor.name}
         </span>{' '}
         <span className="text-slate-300">{stripActor(entry.text, actor.name)}</span>
+        <LogThumbs cardIds={cardIds} />
         {fois > 1 && (
           <>
             {' '}
@@ -406,4 +407,41 @@ export function ActionLog({
 /** Le nom de l'acteur est déjà affiché en gras : on évite de le répéter. */
 function stripActor(text: string, name: string): string {
   return text.startsWith(`${name} `) ? text.slice(name.length + 1) : text;
+}
+
+/**
+ * Les cartes d'une ligne, en vignettes : on reconnaît une illustration bien
+ * avant d'avoir lu un nom. Seulement celles dont l'identité nous est connue —
+ * une carte cachée n'a rien à montrer — et quatre au plus ; le survol de la
+ * vignette ouvre l'aperçu habituel.
+ */
+const LOG_THUMBS = 4;
+
+function LogThumbs({ cardIds }: { cardIds: readonly string[] }): React.ReactElement | null {
+  const cards = useGame((s) => s.cards);
+  const hoverPreview = useGame((s) => s.hoverPreview);
+  const shown: Array<{ id: string; scryfallId: string }> = [];
+  for (const id of cardIds) {
+    const card = cards.get(id);
+    if (!card || card.faceDown !== false || !('scryfallId' in card) || !card.scryfallId) continue;
+    shown.push({ id, scryfallId: card.scryfallId });
+    if (shown.length >= LOG_THUMBS) break;
+  }
+  if (shown.length === 0) return null;
+  return (
+    <span className="ml-1 inline-flex gap-0.5 align-middle" data-test="log-thumbs">
+      {shown.map((c) => (
+        <img
+          key={c.id}
+          alt=""
+          className="h-[34px] w-6 rounded-[2px] object-cover ring-1 ring-black/60"
+          draggable={false}
+          loading="lazy"
+          src={scryfallImage(c.scryfallId, 'small')}
+          onPointerEnter={() => hoverPreview(c.scryfallId)}
+          onPointerLeave={() => hoverPreview(null)}
+        />
+      ))}
+    </span>
+  );
 }
