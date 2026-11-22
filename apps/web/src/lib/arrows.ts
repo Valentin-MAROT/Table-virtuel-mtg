@@ -42,17 +42,19 @@ function opponents(): string[] {
 function hasVigilance(cardId: string): boolean {
   const card = useGame.getState().cards.get(cardId);
   if (!card || !('scryfallId' in card) || !card.scryfallId) return false;
+  // Face cachée, une créature n'a aucune capacité (708.2a) : elle s'engage,
+  // même si son recto — que son propriétaire voit — a la vigilance.
+  if (card.facedownOnTable) return false;
   return (cardMeta(card.scryfallId)?.keywords ?? []).some((k) => k.toLowerCase() === 'vigilance');
 }
 
 /** Trace les flèches ; une attaque engage en plus ce qui n'a pas la vigilance. */
 export function sendArrows(kind: ArrowKind, from: string[], to: ArrowEnd): void {
   const { send, cards } = useGame.getState();
-  if (kind === 'ATTACK') {
-    const toTap = from.filter((id) => cards.get(id)?.tapped === false && !hasVigilance(id));
-    if (toTap.length > 0) send({ type: 'TAP', cardIds: toTap });
-  }
-  send({ type: 'ADD_ARROWS', kind, from, to });
+  // L'engagement part **dans** l'intent : une seule action, donc une seule
+  // annulation pour défaire et l'engagement et les flèches.
+  const tap = kind === 'ATTACK' ? from.filter((id) => cards.get(id)?.tapped === false && !hasVigilance(id)) : [];
+  send({ type: 'ADD_ARROWS', kind, from, to, ...(tap.length > 0 ? { tap } : {}) });
 }
 
 /** « Attaquer » : direct à deux joueurs, sinon on choisit le joueur. */

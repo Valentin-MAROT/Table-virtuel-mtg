@@ -1266,8 +1266,7 @@ export class Room {
         : null;
 
       const result = applyIntent(this.state, conn.seatId, intent, this.rng, deps);
-      // Une carte qui quitte le champ emporte les flèches qui la touchaient.
-      const seq = this.commit(conn.seatId, [...result.emissions, ...pruneArrows(this.state)]);
+      const seq = this.commit(conn.seatId, result.emissions);
 
       if (printingBefore && wasPrinting && seq !== null) {
         this.syncDeckPrinting(conn.seatId, wasPrinting, printingBefore);
@@ -1558,6 +1557,12 @@ export class Room {
       try {
         const follow = reconcileTopReveals(this.state);
         if (follow.length > 0) this.commit(null, follow);
+        // Même raison, même endroit : une carte qui quitte le champ — par un
+        // intent, une annulation, un départ, une relance — emporte les
+        // flèches qui la touchaient. Le faire ici le rend complet par
+        // construction.
+        const pruned = pruneArrows(this.state);
+        if (pruned.length > 0) this.commit(null, pruned);
       } finally {
         this.reconciling = false;
       }

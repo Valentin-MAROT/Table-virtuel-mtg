@@ -31,12 +31,18 @@ async function asseoir(page, nom, deck) {
 }
 const shot = async (page, nom) => { await page.waitForTimeout(400); await page.screenshot({ path: `${OUT}/${nom}.png` }); console.log('capture', nom); };
 const check = (ok, txt) => console.log((ok ? 'OK    - ' : 'ÉCHEC - ') + txt);
-const poser = (page, x, y) => page.evaluate(([px, py]) => {
-  const s = window.__mtg.getState();
-  const c = [...s.cards.values()].find((k) => k.zone.kind === 'HAND' && k.zone.seat === s.mySeat);
-  s.send({ type: 'MOVE_CARD', cardId: c.id, to: { seat: s.mySeat, kind: 'BATTLEFIELD' }, x: px, y: py });
-  return c.id;
-}, [x, y]);
+/** Pose la première carte de la main, et attend qu'elle soit arrivée : sans
+ *  cela, deux poses de suite reprenaient la même carte. */
+const poser = async (page, x, y) => {
+  const id = await page.evaluate(([px, py]) => {
+    const s = window.__mtg.getState();
+    const c = [...s.cards.values()].find((k) => k.zone.kind === 'HAND' && k.zone.seat === s.mySeat);
+    s.send({ type: 'MOVE_CARD', cardId: c.id, to: { seat: s.mySeat, kind: 'BATTLEFIELD' }, x: px, y: py });
+    return c.id;
+  }, [x, y]);
+  await page.waitForFunction((cid) => window.__mtg.getState().cards.get(cid)?.zone.kind === 'BATTLEFIELD', id, { timeout: 8000 });
+  return id;
+};
 const menu = async (page, id, nom) => {
   await page.locator(`[data-card-id="${id}"]`).first().click({ button: 'right' });
   await page.getByRole('button', { name: nom }).first().click();

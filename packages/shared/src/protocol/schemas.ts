@@ -227,6 +227,7 @@ const intentUnion = z.discriminatedUnion('type', [
     kind: z.enum(['TARGET', 'ATTACK', 'BLOCK']),
     from: z.array(objectId).min(1).max(64),
     to: z.union([z.object({ card: objectId }).strict(), z.object({ seat: seatId }).strict()]),
+    tap: z.array(objectId).max(64).optional(),
   }).strict(),
   z.object({ type: z.literal('CLEAR_ARROWS') }).strict(),
   z.object({ type: z.literal('END_TURN') }).strict(),

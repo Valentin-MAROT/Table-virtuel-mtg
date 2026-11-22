@@ -579,6 +579,15 @@ export function handleMessage(message: ServerMessage, set: Setter, get: Getter):
       noteLiveEvent(message.event, message.actor, get().mySeat, get().cards);
       applyEvent(message.event, set, get);
       set({ seq: message.seq });
+      /*
+       * L'annonce du tour, **ici et pas dans `applyEvent`** : le rattrapage
+       * (`hello` + `delta`) rejoue aussi les `TURN_ENDED` manqués, et une
+       * reconnexion faisait alors sonner la cloche pour un tour déjà commencé.
+       */
+      if (message.event.type === 'TURN_ENDED' || message.event.type === 'GAME_STARTED') {
+        const seat = message.event.type === 'TURN_ENDED' ? message.event.nextSeat : message.event.startingSeat;
+        set({ turnCue: { id: (get().turnCue?.id ?? 0) + 1, seat, turnNumber: get().turn.turnNumber } });
+      }
       if (message.log) {
         const entry: LogEntry = {
           seq: message.seq,
@@ -1042,15 +1051,16 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
       return;
 
     case 'TURN_ENDED':
-      set({
-        turn: { activeSeat: event.nextSeat, turnNumber: event.turnNumber, phase: 'UNTAP' },
-        turnCue: { id: (get().turnCue?.id ?? 0) + 1, seat: event.nextSeat, turnNumber: event.turnNumber },
-      });
+      set({ turn: { activeSeat: event.nextSeat, turnNumber: event.turnNumber, phase: 'UNTAP' } });
       return;
 
-    case 'ARROWS_ADDED':
-      set({ arrows: [...get().arrows, ...event.arrows] });
+    case 'ARROWS_ADDED': {
+      // Par identifiant : un rattrapage qui chevauche des events déjà reçus
+      // les réapplique, et la flèche aurait été dessinée deux fois.
+      const fresh = new Set(event.arrows.map((a) => a.id));
+      set({ arrows: [...get().arrows.filter((a) => !fresh.has(a.id)), ...event.arrows] });
       return;
+    }
 
     case 'ARROWS_REMOVED': {
       const gone = new Set(event.ids);
@@ -1066,7 +1076,6 @@ function applyEvent(event: Event, set: Setter, get: Getter): void {
       set({
         room: get().room ? { ...get().room!, status: 'PLAYING' } : null,
         turn: { activeSeat: event.startingSeat, turnNumber: 1, phase: 'UNTAP' },
-        turnCue: { id: (get().turnCue?.id ?? 0) + 1, seat: event.startingSeat, turnNumber: 1 },
       });
       return;
 

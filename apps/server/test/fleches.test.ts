@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ServerMessage } from '@mtg/shared';
 import { getZone } from '../src/game/state.js';
-import { twoSeatTable, type Table } from './fixture.js';
+import { seatTable, twoSeatTable, type Table } from './fixture.js';
 
 async function deuxPermanents(t: Table): Promise<{ mien: string; sien: string }> {
   t.room.startGame('seat_0');
@@ -106,5 +106,90 @@ describe('flèches', () => {
     const line = t.room.state.log.at(-1)!;
     expect(line.text).toMatch(/^Alice cible une carte avec Carte \d+$/);
     expect(line.text).not.toContain('Bob');
+  });
+});
+
+describe('flèches : ce qui les efface, ce qui les refuse', () => {
+  it('une attaque engage et trace en une seule action, qu’un Ctrl+Z défait entièrement', async () => {
+    const t = twoSeatTable();
+    const { mien } = await deuxPermanents(t);
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'ATTACK', from: [mien], to: { seat: 'seat_1' }, tap: [mien] });
+    expect(t.room.state.objects.get(mien)!.tapped).toBe(true);
+    expect(t.room.state.arrows.size).toBe(1);
+    await t.room.handleIntent(t.a, 'u', { type: 'UNDO_LAST' });
+    expect(t.room.state.objects.get(mien)!.tapped).toBe(false);
+    expect(t.room.state.arrows.size).toBe(0);
+  });
+
+  it('on n’engage par une flèche que ses attaquants, et seulement en attaquant', async () => {
+    const t = twoSeatTable();
+    const { mien, sien } = await deuxPermanents(t);
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'ATTACK', from: [mien], to: { seat: 'seat_1' }, tap: [sien] });
+    expect(t.room.state.objects.get(sien)!.tapped).toBe(false);
+    await t.room.handleIntent(t.a, 'f2', { type: 'ADD_ARROWS', kind: 'TARGET', from: [mien], to: { card: sien }, tap: [mien] });
+    expect(rejet(t.a.received)).toBe('ERR_PAYLOAD');
+  });
+
+  it('relancer la partie efface les flèches, même d’une carte qui garde son identifiant', async () => {
+    const t = twoSeatTable();
+    const { mien } = await deuxPermanents(t);
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'ATTACK', from: [mien], to: { seat: 'seat_1' } });
+    t.room.restartGame('seat_0', true);
+    expect(t.room.state.arrows.size).toBe(0);
+    expect(t.room.snapshotFor('seat_1').arrows).toBeUndefined();
+  });
+
+  it('annuler le geste qui a sorti la carte du champ ne ressuscite pas sa flèche', async () => {
+    const t = twoSeatTable();
+    const { mien } = await deuxPermanents(t);
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'TARGET', from: [mien], to: { seat: 'seat_1' } });
+    await t.room.handleIntent(t.a, 'mv', { type: 'MOVE_CARD', cardId: mien, to: { seat: 'seat_0', kind: 'GRAVEYARD' } });
+    expect(t.room.state.arrows.size).toBe(0);
+    await t.room.handleIntent(t.a, 'u', { type: 'UNDO_LAST' });
+    expect(t.room.state.objects.get(mien)!.zone.kind).toBe('BATTLEFIELD');
+    expect(t.room.state.arrows.size).toBe(0);
+  });
+
+  it('le départ d’un siège emporte les flèches qu’il a tracées et celles qui le visaient', async () => {
+    const t = twoSeatTable();
+    const { mien, sien } = await deuxPermanents(t);
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'ATTACK', from: [mien], to: { seat: 'seat_1' } });
+    await t.room.handleIntent(t.b, 'f2', { type: 'ADD_ARROWS', kind: 'TARGET', from: [sien], to: { card: mien } });
+    t.room.standUp(t.b, { force: true });
+    expect(t.room.state.arrows.size).toBe(0);
+  });
+
+  it('on n’attaque pas sa propre carte, on ne bloque pas la sienne', async () => {
+    const t = twoSeatTable();
+    t.room.startGame('seat_0');
+    const [m1, m2] = getZone(t.room.state, { seat: 'seat_0', kind: 'HAND' });
+    for (const [i, id] of [m1!, m2!].entries()) {
+      await t.room.handleIntent(t.a, `p${i}`, { type: 'MOVE_CARD', cardId: id, to: { seat: 'seat_0', kind: 'BATTLEFIELD' }, x: 10 + i * 100, y: 10 });
+    }
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'ATTACK', from: [m1!], to: { card: m2! } });
+    expect(rejet(t.a.received)).toBe('ERR_PAYLOAD');
+    await t.room.handleIntent(t.a, 'f2', { type: 'ADD_ARROWS', kind: 'BLOCK', from: [m1!], to: { card: m2! } });
+    expect(rejet(t.a.received)).toBe('ERR_PAYLOAD');
+    expect(t.room.state.arrows.size).toBe(0);
+  });
+
+  it('la même cible deux fois ne trace qu’une flèche', async () => {
+    const t = twoSeatTable();
+    const { mien, sien } = await deuxPermanents(t);
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'TARGET', from: [mien], to: { card: sien } });
+    await t.room.handleIntent(t.a, 'f2', { type: 'ADD_ARROWS', kind: 'TARGET', from: [mien], to: { card: sien } });
+    expect(t.room.state.arrows.size).toBe(1);
+  });
+
+  it('un joueur qui a concédé ne trace plus, et ses flèches s’en vont', async () => {
+    const t = seatTable(3);
+    t.room.startGame('seat_0');
+    const mien = getZone(t.room.state, { seat: 'seat_0', kind: 'HAND' })[0]!;
+    await t.room.handleIntent(t.a, 'p', { type: 'MOVE_CARD', cardId: mien, to: { seat: 'seat_0', kind: 'BATTLEFIELD' }, x: 10, y: 10 });
+    await t.room.handleIntent(t.a, 'f1', { type: 'ADD_ARROWS', kind: 'ATTACK', from: [mien], to: { seat: 'seat_1' } });
+    await t.room.handleIntent(t.a, 'c', { type: 'CONCEDE' });
+    expect(t.room.state.arrows.size).toBe(0);
+    await t.room.handleIntent(t.a, 'f2', { type: 'ADD_ARROWS', kind: 'TARGET', from: [mien], to: { seat: 'seat_1' } });
+    expect(rejet(t.a.received)).toBe('ERR_PAYLOAD');
   });
 });

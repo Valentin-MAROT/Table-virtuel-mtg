@@ -22,9 +22,22 @@ import { useGame } from '../store/game.js';
 const listeners = new Set<() => void>();
 const memory = new Map<string, number>();
 
+/**
+ * Le `seq` de la ligne « La partie commence » la plus récente : il identifie la
+ * partie. Sans lui, les mulligans d'une manche précédente comptaient pour la
+ * suivante — et le bandeau de départ laissait « Garder » une main de sept
+ * après un mulligan payant.
+ */
+function gameStartSeq(log: ReturnType<typeof useGame.getState>['log']): number {
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i]!.text.startsWith('La partie commence')) return log[i]!.seq;
+  }
+  return 0;
+}
+
 function key(): string | null {
-  const { room, mySeat } = useGame.getState();
-  return room && mySeat ? `mulligan-fait:${room.code}:${mySeat}` : null;
+  const { room, mySeat, log } = useGame.getState();
+  return room && mySeat ? `mulligan-fait:${room.code}:${mySeat}:${gameStartSeq(log)}` : null;
 }
 
 function doneFor(): number {
@@ -56,7 +69,8 @@ export function markMulliganDone(taken: number): void {
 
 /** Mulligans que j'ai pris, payants et gratuits : une ligne de journal chacun. */
 function mulligansTaken(state: ReturnType<typeof useGame.getState>): number {
-  return state.log.filter((e) => e.actor === state.mySeat && e.text.includes('a pris un mulligan')).length;
+  const start = gameStartSeq(state.log);
+  return state.log.filter((e) => e.seq > start && e.actor === state.mySeat && e.text.includes('a pris un mulligan')).length;
 }
 
 /** `{ taken, toBottom }` si une main attend ses cartes dessous, sinon `null`. */
@@ -96,8 +110,7 @@ const keptMemory = new Set<string>();
 function gameKey(): string | null {
   const { room, mySeat, log } = useGame.getState();
   if (!room || !mySeat) return null;
-  const start = [...log].reverse().find((e) => e.text.startsWith('La partie commence'));
-  return `main-gardee:${room.code}:${mySeat}:${start?.seq ?? 0}`;
+  return `main-gardee:${room.code}:${mySeat}:${gameStartSeq(log)}`;
 }
 
 function keptFor(): boolean {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cardMeta, scryfallImage } from '../lib/cards.js';
 import { localizedCard, localizedCardName, useLocalizationTick } from '../lib/cardLocalization.js';
 import { resolveCardImage, useT } from '../lib/i18n/index.js';
@@ -46,10 +46,15 @@ export function PublicRevealModal(): React.ReactElement | null {
     };
   }, [hoverPreview]);
 
+  // Les cartes de la dernière révélation montrée : seul leur aperçu s'éteint
+  // quand elle se retire, pas celui d'une carte survolée ailleurs.
+  const lastCards = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!publicReveal || publicReveal.seat === mySeat) {
-      hoverPreview(null);
+      const hovered = useGame.getState().hoveredPreview;
+      if (hovered && lastCards.current.has(hovered.scryfallId)) hoverPreview(null);
     }
+    if (publicReveal) lastCards.current = new Set(publicReveal.cards.map((c) => c.scryfallId));
   }, [publicReveal, mySeat, hoverPreview]);
 
   /*
@@ -62,8 +67,12 @@ export function PublicRevealModal(): React.ReactElement | null {
   useEffect(() => {
     if (!resolvedLookId) return;
     const timer = window.setTimeout(() => {
-      if (useGame.getState().publicReveal?.lookId !== resolvedLookId) return;
-      hoverPreview(null);
+      const current = useGame.getState();
+      if (current.publicReveal?.lookId !== resolvedLookId) return;
+      // N'éteindre l'aperçu que s'il montrait une carte de cette révélation :
+      // le joueur peut survoler tout autre chose à cet instant.
+      const shown = new Set(current.publicReveal.cards.map((c) => c.scryfallId));
+      if (current.hoveredPreview && shown.has(current.hoveredPreview.scryfallId)) hoverPreview(null);
       useGame.setState({ publicReveal: null });
     }, LINGER_MS);
     return () => window.clearTimeout(timer);

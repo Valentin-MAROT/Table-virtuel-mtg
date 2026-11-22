@@ -82,7 +82,7 @@ try {
     return main.map((c) => c.id);
   });
   for (const id of dfc) {
-    await alice.locator(`[data-card-id="${id}"]`).first().hover().catch(() => {});
+    await alice.locator(`[data-zone$="|HAND"] [data-card="${id}"]`).first().hover({ timeout: 3000 }).catch(() => {});
     await alice.waitForTimeout(500);
     if (await alice.locator('[data-test="card-preview-other-face"]').isVisible()) {
       await alice.waitForTimeout(800);

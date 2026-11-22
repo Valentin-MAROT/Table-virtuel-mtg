@@ -360,7 +360,12 @@ export interface SetSeatCosmetics {
 }
 
 /** Trace une flèche de chacune des cartes `from` vers `to` (§ flèches). */
-export interface AddArrows { type: 'ADD_ARROWS'; kind: ArrowKind; from: ObjectId[]; to: ArrowEnd }
+/**
+ * Trace une flèche de chacune des cartes `from` vers `to`. `tap` (attaque) :
+ * les attaquants à engager **dans la même action**, pour qu'une seule
+ * annulation défasse et l'engagement et les flèches.
+ */
+export interface AddArrows { type: 'ADD_ARROWS'; kind: ArrowKind; from: ObjectId[]; to: ArrowEnd; tap?: ObjectId[] }
 /** Efface les flèches que l'on a tracées. */
 export interface ClearArrows { type: 'CLEAR_ARROWS' }
 

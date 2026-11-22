@@ -83,7 +83,7 @@ try {
 
   await step('clic droit sur la bibliothèque', async () => {
     await page.locator('button[data-zone$="|LIBRARY"]').first().click({ button: 'right' });
-    await page.getByText('Fouiller la bibliothèque').waitFor({ timeout: 5000 });
+    await page.getByText('Chercher dans la bibliothèque').waitFor({ timeout: 5000 });
   });
   await page.screenshot({ path: `${OUT}/mtg-library-menu.png` });
   await page.keyboard.press('Escape');

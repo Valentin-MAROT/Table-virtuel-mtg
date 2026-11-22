@@ -24,13 +24,14 @@ const COLORS: Record<ArrowKind, string> = { ATTACK: '#ef4444', BLOCK: '#38bdf8',
 type Pt = { x: number; y: number };
 type Drawn = { id: string; kind: ArrowKind; a: Pt; b: Pt };
 
+/** La carte **sur la table** : jamais un double en main ou dans un panneau de zone. */
 function cardEl(id: string): Element | null {
   const all = document.querySelectorAll(`[data-card-id="${CSS.escape(id)}"]`);
   for (const el of all) {
     const zone = el.closest('[data-zone]')?.getAttribute('data-zone') ?? '';
     if (zone.endsWith('|BATTLEFIELD') || zone.endsWith('|STACK_NOTE')) return el;
   }
-  return all[0] ?? null;
+  return null;
 }
 
 function center(el: Element): Pt {
@@ -152,7 +153,10 @@ export function ArrowLayer(): React.ReactElement | null {
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
-        e.stopPropagation();
+        // `stopImmediatePropagation` : les raccourcis écoutent aussi `window`,
+        // et Échap y viderait la sélection en plus d'annuler la visée.
+        e.stopImmediatePropagation();
+        e.preventDefault();
         cancelPick();
       }
     };
