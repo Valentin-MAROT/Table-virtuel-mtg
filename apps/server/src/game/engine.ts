@@ -259,7 +259,7 @@ function cardName(obj: GameObjectState): string {
  * d'identifier. Nommée parce qu'elle sort désormais aussi dans `LogEntry.names`,
  * et que les deux endroits doivent dire le même mot.
  */
-const CARTE_ANONYME = 'une carte';
+export const CARTE_ANONYME = 'une carte';
 
 /** Nom utilisable en journal public : sinon, une périphrase neutre. */
 function publicName(obj: GameObjectState, state: GameState): string {
